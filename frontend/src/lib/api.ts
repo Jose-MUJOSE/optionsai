@@ -1,0 +1,623 @@
+// ============================================================
+// OptionsAI - API 客户端
+// ============================================================
+
+import type { MarketData, StrategyResponse, TrendExpectation, ChatMessage, ChatContext } from "@/types";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export async function fetchMarketData(ticker: string): Promise<MarketData> {
+  const res = await fetch(`${API_URL}/api/market-data/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch market data");
+  }
+  return res.json();
+}
+
+export async function fetchStrategies(params: {
+  ticker: string;
+  trend: TrendExpectation;
+  target_price?: number;
+  target_pct?: number;
+  target_price_upper?: number;
+  target_price_lower?: number;
+  expiration: string;
+  preference_weight: number;
+  budget?: number;
+  max_loss?: number;
+  max_loss_type?: string;
+}): Promise<StrategyResponse> {
+  const res = await fetch(`${API_URL}/api/strategies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to calculate strategies");
+  }
+  return res.json();
+}
+
+export interface ForecastItem {
+  timeframe: string;
+  timeframe_label: string;
+  direction: "up" | "down" | "neutral";
+  price_low: number;
+  price_high: number;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+}
+
+export interface ForecastResponse {
+  ticker: string;
+  spot_price: number;
+  forecasts: ForecastItem[];
+}
+
+export async function fetchForecast(ticker: string, locale: string): Promise<ForecastResponse> {
+  const res = await fetch(`${API_URL}/api/forecast/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch forecast");
+  }
+  return res.json();
+}
+
+export interface NewsItem {
+  date: string;
+  title: string;
+  summary: string;
+  source?: string;
+  url?: string;
+}
+
+export interface EventItem {
+  date: string;
+  type: string;
+  description: string;
+}
+
+export interface AnalystTarget {
+  institution: string;
+  target_price: number | null;
+  target_high?: number | null;
+  target_low?: number | null;
+  rating: string;
+  date: string;
+  timeframe?: string;
+  num_analysts?: number;
+}
+
+export interface MarketIntelResponse {
+  ticker: string;
+  spot_price?: number;
+  news: NewsItem[];
+  events: EventItem[];
+  analyst_targets: AnalystTarget[];
+}
+
+// Options Snapshot (expiration-specific ATM IV + Greeks)
+export interface GreeksData {
+  strike: number;
+  iv: number;
+  mid: number;
+  bid: number;
+  ask: number;
+  volume: number;
+  open_interest: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+}
+
+export interface OptionsSnapshot {
+  ticker: string;
+  expiration: string;
+  dte: number;
+  atm_iv: number;
+  hv_30: number;
+  iv_hv_ratio: number | null;
+  atm_call: GreeksData;
+  atm_put: GreeksData;
+}
+
+export async function fetchOptionsSnapshot(ticker: string, expiration: string): Promise<OptionsSnapshot> {
+  const res = await fetch(`${API_URL}/api/options-snapshot/${ticker}?expiration=${expiration}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch options snapshot");
+  }
+  return res.json();
+}
+
+export async function fetchMarketIntel(ticker: string, locale: string): Promise<MarketIntelResponse> {
+  const res = await fetch(`${API_URL}/api/market-intel/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch market intel");
+  }
+  return res.json();
+}
+
+export async function* streamTopPick(params: Record<string, unknown>): AsyncGenerator<string> {
+  const res = await fetch(`${API_URL}/api/top-pick`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Top pick request failed");
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (data === "[DONE]") return;
+        if (data.startsWith("[ERROR]")) throw new Error(data);
+        yield data;
+      }
+    }
+  }
+}
+
+// IV Term Structure
+export interface IVTermItem {
+  expiration: string;
+  dte: number;
+  atm_iv: number;
+}
+
+export interface IVTermStructureResponse {
+  ticker: string;
+  term_structure: IVTermItem[];
+}
+
+export async function fetchIVTermStructure(ticker: string): Promise<IVTermStructureResponse> {
+  const res = await fetch(`${API_URL}/api/iv-term-structure/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch IV term structure");
+  }
+  return res.json();
+}
+
+// Settings
+export interface SettingsConfig {
+  data_provider: string;
+  polygon_api_key: string;
+  tradier_api_key: string;
+  llm_provider: string;
+  llm_api_key: string;
+  llm_base_url: string;
+  llm_model: string;
+  llm_presets?: Record<string, { base_url: string; model: string }>;
+}
+
+export async function fetchSettings(): Promise<SettingsConfig> {
+  const res = await fetch(`${API_URL}/api/settings`);
+  if (!res.ok) throw new Error("Failed to fetch settings");
+  return res.json();
+}
+
+export async function updateSettings(updates: Partial<SettingsConfig>): Promise<SettingsConfig> {
+  const res = await fetch(`${API_URL}/api/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update settings");
+  const data = await res.json();
+  return data.config;
+}
+
+// OHLCV / K-line data
+export interface OHLCVBar {
+  time: number;     // Unix timestamp (seconds)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface OHLCVResponse {
+  ticker: string;
+  interval: string;
+  bars: OHLCVBar[];
+}
+
+export async function fetchOHLCV(ticker: string, range = "1y", interval = "1d"): Promise<OHLCVResponse> {
+  const res = await fetch(`${API_URL}/api/ohlcv/${ticker}?range=${range}&interval=${interval}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch OHLCV data");
+  }
+  return res.json();
+}
+
+// Short data
+export interface ShortInterestData {
+  shares_short: number | null;
+  short_ratio: number | null;
+  short_pct_float: number | null;
+  date_short_interest: string | null;
+  source: string;
+}
+
+export interface FinraShortVolumeItem {
+  date: string;
+  short_volume: number;
+  total_volume: number;
+  short_pct: number;
+}
+
+export interface ChipDistribution {
+  buckets: { price: number; weight: number }[];
+  data_label: string;
+  current_price: number;
+}
+
+export interface InstitutionHolder {
+  name: string;
+  pct_held: number | null;
+  pct_change: number | null;
+  report_date: string;
+}
+
+export interface InsiderTransaction {
+  name: string;
+  relation: string;
+  transaction_type: string;
+  shares: number | null;
+  value: number | null;
+  date: string;
+}
+
+export interface SmartMoneyData {
+  institutions: InstitutionHolder[];
+  insiders: InsiderTransaction[];
+  source_institutions: string;
+  source_insiders: string;
+}
+
+export interface ShortDataResponse {
+  ticker: string;
+  short_interest: ShortInterestData;
+  daily_short_volume: FinraShortVolumeItem[];
+  chip_distribution: ChipDistribution;
+  smart_money: SmartMoneyData;
+}
+
+export async function fetchShortData(ticker: string): Promise<ShortDataResponse> {
+  const res = await fetch(`${API_URL}/api/short-data/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch short data");
+  }
+  return res.json();
+}
+
+// Earnings implied vs actual moves
+export interface EarningsMoveEvent {
+  date: string;
+  actual_move_pct: number;
+  implied_move_pct: number | null; // Intentionally null — historical implied moves require paid data
+  actual_direction: "up" | "down";
+  close_before: number;
+  close_after: number;
+}
+
+export interface EarningsMovesResponse {
+  ticker: string;
+  past_events: EarningsMoveEvent[];
+  next_earnings_date: string | null;
+  current_implied_move_pct: number | null;
+  current_implied_source_expiration: string | null;
+  avg_absolute_actual_move_pct: number | null;
+  data_notes: {
+    actual_moves: string;
+    implied_moves_history: string;
+    current_implied_move: string;
+  };
+}
+
+export async function fetchEarningsMoves(ticker: string): Promise<EarningsMovesResponse> {
+  const res = await fetch(`${API_URL}/api/earnings-moves/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch earnings moves");
+  }
+  return res.json();
+}
+
+// Full options chain (with win_probability, breakeven)
+export interface FullOptionContract {
+  strike: number;
+  last_price: number;
+  bid: number;
+  ask: number;
+  mid_price: number;
+  implied_volatility: number;
+  volume: number;
+  open_interest: number;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  option_type: "CALL" | "PUT";
+  win_probability: number | null;
+  breakeven: number | null;
+}
+
+export interface FullOptionsChain {
+  ticker: string;
+  expiration: string;
+  dte: number;
+  calls: FullOptionContract[];
+  puts: FullOptionContract[];
+}
+
+export async function fetchFullOptionsChain(ticker: string, expiration: string): Promise<FullOptionsChain> {
+  const res = await fetch(`${API_URL}/api/options-chain/${ticker}?expiration=${expiration}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch options chain");
+  }
+  return res.json();
+}
+
+// Gamma Exposure (GEX) by strike
+export interface GEXStrikeRow {
+  strike: number;
+  call_gex_millions: number;
+  put_gex_millions: number;
+  net_gex_millions: number;
+  call_oi: number;
+  put_oi: number;
+}
+
+export interface GEXResponse {
+  ticker: string;
+  expiration: string;
+  dte: number;
+  spot_price: number;
+  net_gex_millions: number;
+  call_gex_millions: number;
+  put_gex_millions: number;
+  gamma_flip_strike: number | null;
+  by_strike: GEXStrikeRow[];
+  disclaimer: string;
+}
+
+export async function fetchGEX(ticker: string, expiration: string): Promise<GEXResponse> {
+  const res = await fetch(`${API_URL}/api/gex/${ticker}?expiration=${expiration}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch gamma exposure");
+  }
+  return res.json();
+}
+
+// ------------------------------------------------------------------
+// Strategy Backtest (Phase 3) — OHLCV replay + BSM theoretical pricing
+// ------------------------------------------------------------------
+export type BacktestStrategy =
+  | "long_call"
+  | "long_put"
+  | "short_call"
+  | "short_put"
+  | "bull_call_spread"
+  | "bear_put_spread"
+  | "long_straddle"
+  | "short_strangle";
+
+export interface BacktestLeg {
+  action: "buy" | "sell";
+  opt_type: "call" | "put";
+  strike: number;
+  quantity: number;
+}
+
+export interface BacktestBar {
+  date: string;
+  spot: number;
+  theoretical_price: number;
+  pnl_per_contract: number;
+  pnl_pct: number;
+  days_to_expiry: number;
+  sigma: number;
+}
+
+export interface BacktestResponse {
+  ticker: string;
+  strategy_type: BacktestStrategy;
+  entry_date: string;
+  exit_date: string;
+  initial_spot: number;
+  exit_spot: number;
+  dte_at_entry: number;
+  legs: BacktestLeg[];
+  initial_price_per_share: number;
+  exit_price_per_share: number;
+  max_pnl_per_contract: number;
+  min_pnl_per_contract: number;
+  final_pnl_per_contract: number;
+  final_pnl_pct: number;
+  bars: BacktestBar[];
+  assumptions: Record<string, unknown>;
+  data_sources: Record<string, string>;
+}
+
+export async function runBacktest(
+  ticker: string,
+  body: {
+    strategy_type: BacktestStrategy;
+    entry_date?: string | null;
+    dte_days?: number;
+    hold_days?: number | null;
+  }
+): Promise<BacktestResponse> {
+  const res = await fetch(`${API_URL}/api/backtest/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Backtest failed");
+  }
+  return res.json();
+}
+
+// ------------------------------------------------------------------
+// Unusual Options Flow (Phase 5) — transparent classification, no 3rd-party sentiment
+// ------------------------------------------------------------------
+export interface UnusualContract {
+  option_type: "call" | "put";
+  strike: number;
+  volume: number;
+  open_interest: number;
+  vol_oi_ratio: number | null;
+  mid_price: number;
+  notional_usd: number;
+  iv_pct: number | null;
+  moneyness_pct: number;
+  status: "ITM" | "OTM";
+  flags: string[];
+}
+
+export interface UnusualFlowResponse {
+  ticker: string;
+  expiration: string;
+  dte: number;
+  spot_price: number;
+  contracts: UnusualContract[];
+  total_unusual_count: number;
+  call_notional_usd: number;
+  put_notional_usd: number;
+  call_put_bias: "bullish" | "neutral" | "bearish";
+  thresholds: {
+    vol_oi_ratio: number;
+    large_block_volume: number;
+    large_block_vol_oi: number;
+    large_notional_usd: number;
+  };
+  data_source: string;
+}
+
+export async function fetchUnusualFlow(ticker: string, expiration = ""): Promise<UnusualFlowResponse> {
+  const q = expiration ? `?expiration=${expiration}` : "";
+  const res = await fetch(`${API_URL}/api/unusual-flow/${ticker}${q}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch unusual flow");
+  }
+  return res.json();
+}
+
+// ------------------------------------------------------------------
+// Strategy Scanner (Phase 6a) — scan multiple tickers for setups
+// ------------------------------------------------------------------
+export type ScannerPreset =
+  | "high_iv_rank"           // IV Rank > 60 → good for premium sellers
+  | "low_iv_rank"            // IV Rank < 30 → good for premium buyers
+  | "bullish_flow"           // unusual call bias
+  | "bearish_flow"           // unusual put bias
+  | "earnings_week";         // earnings within 7 days
+
+export interface ScannerHit {
+  ticker: string;
+  reason: string;
+  signal_value: number | string | null;
+  signal_label: string;
+  spot_price: number | null;
+}
+
+export interface ScannerResponse {
+  preset: ScannerPreset;
+  scanned: number;
+  hits: ScannerHit[];
+  data_sources: Record<string, string>;
+}
+
+export async function runScanner(
+  preset: ScannerPreset,
+  tickers: string[]
+): Promise<ScannerResponse> {
+  const res = await fetch(`${API_URL}/api/scanner`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preset, tickers }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Scanner failed");
+  }
+  return res.json();
+}
+
+export async function* streamChat(
+  messages: ChatMessage[],
+  context?: ChatContext,
+): AsyncGenerator<string> {
+  const res = await fetch(`${API_URL}/api/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, context }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Chat request failed");
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (data === "[DONE]") return;
+        if (data.startsWith("[ERROR]")) throw new Error(data);
+        yield data;
+      }
+    }
+  }
+}

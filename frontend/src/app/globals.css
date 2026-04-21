@@ -1,0 +1,321 @@
+@import "tailwindcss";
+
+/* ================================================================
+   OptionsAI — Premium Light Terminal (Blue-Forward)
+   White canvas, editorial indigo-blue as the primary voice.
+   Typography leans blue. Every accent is dynamic — shimmer,
+   gradient sweeps, breathing underlines — never static.
+   ================================================================ */
+
+:root {
+  /* Canvas — cool-tinted whites so blue reads harmonious */
+  --bg-0: #ffffff;        /* pure white */
+  --bg-1: #f5f8ff;        /* app canvas — faint blue-white */
+  --bg-2: #eef3fd;        /* recessed blue-tinted */
+  --bg-3: #e3ebfa;        /* raised blue-tinted */
+
+  /* Lines — indigo-tinted so dividers echo the blue voice */
+  --line-soft: rgba(45, 76, 221, 0.08);
+  --line-mid:  rgba(45, 76, 221, 0.16);
+  --line-hot:  rgba(37, 99, 235, 0.38);
+
+  /* Text — pushed toward blue-black for visual continuity with accent.
+     Secondary/muted tones darkened so nothing is washed-out pale. */
+  --text-0: #0a1a3e;      /* primary — deep navy ink */
+  --text-1: #1e3a8a;      /* secondary — royal blue */
+  --text-2: #475569;      /* muted — readable slate (was too light at #64748b) */
+  --text-3: #64748b;      /* tertiary — still legible on white */
+
+  /* Accent — editorial indigo */
+  --accent:        #2d4cdd;
+  --accent-hot:    #1d3bc7;
+  --accent-bright: #3b5fe6; /* for gradients & sheen */
+  --accent-soft:   rgba(45, 76, 221, 0.12);
+  --accent-ring:   rgba(45, 76, 221, 0.22);
+
+  --accent-violet: #6d4ee0;
+  --accent-cyan:   #0891c4;
+  --accent-teal:   #0d9f8a;
+  --accent-amber:  #d97706;
+
+  /* Financial semantics */
+  --fin-up:        #0a8f5a;
+  --fin-up-soft:   rgba(10, 143, 90, 0.10);
+  --fin-down:      #d33b4d;
+  --fin-down-soft: rgba(211, 59, 77, 0.10);
+  --fin-warn:      #d97706;
+
+  /* Shadows — blue-tinted so they feel part of the palette */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 68, 0.05), 0 1px 3px rgba(15, 23, 68, 0.04);
+  --shadow-md: 0 6px 18px -6px rgba(24, 39, 110, 0.10), 0 2px 6px -2px rgba(24, 39, 110, 0.05);
+  --shadow-lg: 0 18px 42px -14px rgba(24, 39, 110, 0.16), 0 8px 20px -8px rgba(24, 39, 110, 0.08);
+  --shadow-blue: 0 10px 26px -10px rgba(45, 76, 221, 0.35);
+  --shadow-ring: 0 0 0 1px var(--line-mid);
+
+  --foreground: var(--text-0);
+  --background: var(--bg-1);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html, body { background: var(--bg-1); color: var(--text-0); }
+
+body {
+  font-family: var(--font-sans), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv11", "tnum";
+  letter-spacing: -0.003em;
+}
+
+/* ---------- Scrollbar (blue-tinted) ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(45, 76, 221, 0.18);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(45, 76, 221, 0.42);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ---------- Range slider (blue premium) ---------- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--accent), var(--accent-violet));
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(45,76,221,0.25), 0 0 0 2px var(--accent-soft);
+  transition: box-shadow 0.2s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 2px 8px rgba(45,76,221,0.35), 0 0 0 5px var(--accent-soft);
+}
+
+/* ---------- Panels — subtle blue tint + crisper shadow ---------- */
+.panel {
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.panel-raised {
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
+}
+.panel-tinted {
+  background: linear-gradient(180deg, #ffffff 0%, #f2f6ff 100%);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+/* Gradient-border panel for hero surfaces */
+.panel-glow {
+  position: relative;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: var(--shadow-md), var(--shadow-blue);
+}
+.panel-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(45,76,221,0.45), rgba(109,78,224,0.25) 45%, rgba(45,76,221,0.05));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+.accent-text { color: var(--accent); }
+.accent-border {
+  border: 1px solid var(--line-mid);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.accent-border:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+/* Pure-blue gradient utility for text */
+.text-gradient-blue {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-violet) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+.grid-paper {
+  background-image:
+    linear-gradient(rgba(45,76,221,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45,76,221,0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+.mono { font-family: var(--font-mono), ui-monospace, "SF Mono", "JetBrains Mono", monospace; font-feature-settings: "tnum"; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 500;
+  background: var(--bg-3);
+  color: var(--text-1);
+  border: 1px solid var(--line-soft);
+}
+.chip-accent {
+  background: var(--accent-soft); color: var(--accent-hot);
+  border-color: rgba(45,76,221,0.22);
+}
+.chip-up   { background: var(--fin-up-soft);   color: var(--fin-up);   border-color: rgba(10,143,90,0.22); }
+.chip-down { background: var(--fin-down-soft); color: var(--fin-down); border-color: rgba(211,59,77,0.22); }
+
+/* ---------- Animations ---------- */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pulse-soft { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes gradient-drift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1); }
+  50%  { transform: translate3d(2%,  1%, 0) scale(1.05); }
+  100% { transform: translate3d(-2%, -1%, 0) scale(1); }
+}
+/* New: shimmering sheen across an element (use on hero cards) */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+/* New: breathing underline for active nav */
+@keyframes breathe-underline {
+  0%,100% { transform: scaleX(1); opacity: 1; }
+  50%     { transform: scaleX(0.6); opacity: 0.7; }
+}
+/* New: slow float for decorative glyphs */
+@keyframes float-slow {
+  0%,100% { transform: translateY(0); }
+  50%     { transform: translateY(-6px); }
+}
+/* New: data-pulse (tiny glow ring for live indicators) */
+@keyframes data-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(45,76,221,0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(45,76,221,0);   }
+  100% { box-shadow: 0 0 0 0 rgba(45,76,221,0);     }
+}
+/* New: blue sweep (gradient line rushing across top) */
+@keyframes sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.anim-fade-up       { animation: fadeUp 0.45s cubic-bezier(0.16,1,0.3,1) both; }
+.anim-fade-in       { animation: fadeIn 0.3s ease-out both; }
+.anim-slide-in      { animation: slideInRight 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+.anim-pulse-soft    { animation: pulse-soft 1.8s ease-in-out infinite; }
+.anim-drift         { animation: gradient-drift 24s ease-in-out infinite; }
+.anim-float-slow    { animation: float-slow 4s ease-in-out infinite; }
+.anim-data-pulse    { animation: data-pulse 2.2s ease-out infinite; }
+.anim-breathe       { animation: breathe-underline 2.4s ease-in-out infinite; transform-origin: left; }
+
+/* Shimmer strip — apply to an empty <span> overlay */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(45,76,221,0.12) 40%,
+    rgba(109,78,224,0.18) 50%,
+    rgba(45,76,221,0.12) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3.2s linear infinite;
+}
+
+/* Blue sweep bar — used on top of hero panels */
+.sweep-bar {
+  position: absolute; inset: 0 auto auto 0;
+  width: 40%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: sweep 3.4s ease-in-out infinite;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ---------- Prose for AI chat (blue premium) ---------- */
+.prose-light { color: var(--text-1); }
+.prose-light strong { color: var(--text-0); }
+.prose-light h3, .prose-light h4 { color: var(--text-0); }
+.prose-light code {
+  color: var(--accent-hot);
+  background: var(--accent-soft);
+  padding: 0.12rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  border: 1px solid rgba(45,76,221,0.20);
+}
+.prose-light table { border-collapse: collapse; width: 100%; }
+.prose-light th {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-mid);
+  padding: 8px 12px; text-align: left; color: var(--text-0);
+  font-weight: 600; font-size: 12px;
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+.prose-light td { border-bottom: 1px solid var(--line-soft); padding: 8px 12px; color: var(--text-1); }
+
+/* Utility: clamp long lines */
+.line-clamp-2 {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-3 {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Resizer handle (both sidebars) */
+.resizer {
+  position: relative;
+  width: 3px;
+  background: var(--line-soft);
+  cursor: col-resize;
+  transition: background .2s ease;
+  flex-shrink: 0;
+}
+.resizer:hover { background: var(--accent); }
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 -6px;
+}
