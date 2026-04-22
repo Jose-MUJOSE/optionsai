@@ -1,0 +1,118 @@
+<svg width="900" height="520" viewBox="0 0 900 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="900" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#0a0e1a"/>
+    </linearGradient>
+    <linearGradient id="blue_grad" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#1e2d4f"/>
+    </linearGradient>
+    <linearGradient id="green_grad" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#1a3a2e"/>
+      <stop offset="100%" stop-color="#142e23"/>
+    </linearGradient>
+    <linearGradient id="purple_grad" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#2d1b4e"/>
+      <stop offset="100%" stop-color="#211440"/>
+    </linearGradient>
+    <linearGradient id="orange_grad" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#3a2000"/>
+      <stop offset="100%" stop-color="#2e1800"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
+      <polygon points="0 0, 8 3.5, 0 7" fill="#475569"/>
+    </marker>
+    <marker id="arrow_blue" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
+      <polygon points="0 0, 8 3.5, 0 7" fill="#60a5fa"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="520" fill="url(#bg2)" rx="16"/>
+  <rect width="900" height="520" fill="none" stroke="#1e293b" stroke-width="1.5" rx="16"/>
+
+  <!-- Title -->
+  <text x="450" y="40" font-family="'Segoe UI', sans-serif" font-size="18" font-weight="600" fill="#94a3b8" text-anchor="middle">System Architecture</text>
+  <line x1="200" y1="52" x2="700" y2="52" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Layer 1: Browser -->
+  <rect x="50" y="70" width="800" height="90" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+  <text x="70" y="94" font-family="'Segoe UI', sans-serif" font-size="11" fill="#64748b" font-weight="600">LAYER 1 — BROWSER</text>
+  <rect x="80" y="102" width="160" height="44" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="160" y="119" font-family="'Segoe UI', sans-serif" font-size="12" fill="#60a5fa" text-anchor="middle" font-weight="600">Next.js 16</text>
+  <text x="160" y="135" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd" text-anchor="middle">React 19 + TypeScript</text>
+  <rect x="260" y="102" width="140" height="44" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="330" y="119" font-family="'Segoe UI', sans-serif" font-size="12" fill="#60a5fa" text-anchor="middle" font-weight="600">Zustand Store</text>
+  <text x="330" y="135" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd" text-anchor="middle">Global state + SSE</text>
+  <rect x="420" y="102" width="160" height="44" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="500" y="119" font-family="'Segoe UI', sans-serif" font-size="12" fill="#60a5fa" text-anchor="middle" font-weight="600">lightweight-charts</text>
+  <text x="500" y="135" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd" text-anchor="middle">Candlestick + Volume</text>
+  <rect x="600" y="102" width="220" height="44" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+  <text x="710" y="119" font-family="'Segoe UI', sans-serif" font-size="12" fill="#60a5fa" text-anchor="middle" font-weight="600">Recharts + Tailwind CSS</text>
+  <text x="710" y="135" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd" text-anchor="middle">29 components · EN/中文</text>
+
+  <!-- Arrow 1 -->
+  <line x1="450" y1="160" x2="450" y2="185" stroke="#475569" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="5,3"/>
+  <text x="465" y="177" font-family="'Segoe UI', sans-serif" font-size="10" fill="#64748b">HTTP / SSE</text>
+
+  <!-- Layer 2: FastAPI -->
+  <rect x="50" y="188" width="800" height="90" rx="10" fill="#1a2535" stroke="#334155" stroke-width="1.5"/>
+  <text x="70" y="212" font-family="'Segoe UI', sans-serif" font-size="11" fill="#64748b" font-weight="600">LAYER 2 — FASTAPI BACKEND (Python 3.12)</text>
+  <rect x="80" y="220" width="150" height="44" rx="6" fill="#1a3a2e" stroke="#10b981" stroke-width="1"/>
+  <text x="155" y="237" font-family="'Segoe UI', sans-serif" font-size="12" fill="#34d399" text-anchor="middle" font-weight="600">Strategy Engine</text>
+  <text x="155" y="253" font-family="'Segoe UI', sans-serif" font-size="10" fill="#6ee7b7" text-anchor="middle">BSM · Backtest · Rank</text>
+  <rect x="250" y="220" width="160" height="44" rx="6" fill="#2d1b4e" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="330" y="237" font-family="'Segoe UI', sans-serif" font-size="12" fill="#a78bfa" text-anchor="middle" font-weight="600">Agent Orchestrator</text>
+  <text x="330" y="253" font-family="'Segoe UI', sans-serif" font-size="10" fill="#c4b5fd" text-anchor="middle">Researcher→Analyst→Verifier</text>
+  <rect x="430" y="220" width="150" height="44" rx="6" fill="#1a3a2e" stroke="#10b981" stroke-width="1"/>
+  <text x="505" y="237" font-family="'Segoe UI', sans-serif" font-size="12" fill="#34d399" text-anchor="middle" font-weight="600">AI Assistant</text>
+  <text x="505" y="253" font-family="'Segoe UI', sans-serif" font-size="10" fill="#6ee7b7" text-anchor="middle">OpenAI · Vision · Stream</text>
+  <rect x="600" y="220" width="220" height="44" rx="6" fill="#1a3a2e" stroke="#10b981" stroke-width="1"/>
+  <text x="710" y="237" font-family="'Segoe UI', sans-serif" font-size="12" fill="#34d399" text-anchor="middle" font-weight="600">Data Fetcher</text>
+  <text x="710" y="253" font-family="'Segoe UI', sans-serif" font-size="10" fill="#6ee7b7" text-anchor="middle">async httpx · Yahoo · Polygon</text>
+
+  <!-- Arrow 2 -->
+  <line x1="450" y1="278" x2="450" y2="303" stroke="#475569" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="5,3"/>
+
+  <!-- Layer 3: LLM -->
+  <rect x="50" y="306" width="370" height="80" rx="10" fill="#1a2535" stroke="#334155" stroke-width="1.5"/>
+  <text x="70" y="328" font-family="'Segoe UI', sans-serif" font-size="11" fill="#64748b" font-weight="600">LAYER 3A — LLM PROVIDER</text>
+  <rect x="80" y="334" width="150" height="40" rx="6" fill="#2d1b4e" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="155" y="348" font-family="'Segoe UI', sans-serif" font-size="11" fill="#a78bfa" text-anchor="middle" font-weight="600">DeepSeek</text>
+  <text x="155" y="364" font-family="'Segoe UI', sans-serif" font-size="10" fill="#c4b5fd" text-anchor="middle">default · fast</text>
+  <rect x="250" y="334" width="150" height="40" rx="6" fill="#2d1b4e" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="325" y="348" font-family="'Segoe UI', sans-serif" font-size="11" fill="#a78bfa" text-anchor="middle" font-weight="600">GPT-4o / Any</text>
+  <text x="325" y="364" font-family="'Segoe UI', sans-serif" font-size="10" fill="#c4b5fd" text-anchor="middle">vision · configurable</text>
+
+  <!-- Layer 3B: Data -->
+  <rect x="460" y="306" width="390" height="80" rx="10" fill="#1a2535" stroke="#334155" stroke-width="1.5"/>
+  <text x="480" y="328" font-family="'Segoe UI', sans-serif" font-size="11" fill="#64748b" font-weight="600">LAYER 3B — REAL DATA SOURCES</text>
+  <rect x="480" y="334" width="110" height="40" rx="6" fill="#3a2000" stroke="#f59e0b" stroke-width="1"/>
+  <text x="535" y="349" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fbbf24" text-anchor="middle" font-weight="600">Yahoo Finance</text>
+  <text x="535" y="364" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d" text-anchor="middle">Price · Options · IV</text>
+  <rect x="605" y="334" width="100" height="40" rx="6" fill="#3a2000" stroke="#f59e0b" stroke-width="1"/>
+  <text x="655" y="349" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fbbf24" text-anchor="middle" font-weight="600">Polygon.io</text>
+  <text x="655" y="364" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d" text-anchor="middle">Backup · OHLCV</text>
+  <rect x="720" y="334" width="115" height="40" rx="6" fill="#3a2000" stroke="#f59e0b" stroke-width="1"/>
+  <text x="777" y="349" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fbbf24" text-anchor="middle" font-weight="600">FINRA RegSHO</text>
+  <text x="777" y="364" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d" text-anchor="middle">Short Volume</text>
+
+  <!-- Agent detail box -->
+  <rect x="100" y="415" width="700" height="82" rx="10" fill="#110e1a" stroke="#4c1d95" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="450" y="436" font-family="'Segoe UI', sans-serif" font-size="11" fill="#7c3aed" text-anchor="middle" font-weight="600">MULTI-AGENT PIPELINE (SSE streaming)</text>
+  <rect x="130" y="444" width="170" height="40" rx="6" fill="#1f0a3a" stroke="#7c3aed" stroke-width="1"/>
+  <text x="215" y="459" font-family="'Segoe UI', sans-serif" font-size="11" fill="#c084fc" text-anchor="middle" font-weight="600">① Researcher</text>
+  <text x="215" y="474" font-family="'Segoe UI', sans-serif" font-size="9" fill="#a855f7" text-anchor="middle">Parallel data gather</text>
+  <rect x="365" y="444" width="170" height="40" rx="6" fill="#1f0a3a" stroke="#7c3aed" stroke-width="1"/>
+  <text x="450" y="459" font-family="'Segoe UI', sans-serif" font-size="11" fill="#c084fc" text-anchor="middle" font-weight="600">② Analyst</text>
+  <text x="450" y="474" font-family="'Segoe UI', sans-serif" font-size="9" fill="#a855f7" text-anchor="middle">Streaming LLM analysis</text>
+  <rect x="600" y="444" width="170" height="40" rx="6" fill="#1f0a3a" stroke="#7c3aed" stroke-width="1"/>
+  <text x="685" y="459" font-family="'Segoe UI', sans-serif" font-size="11" fill="#c084fc" text-anchor="middle" font-weight="600">③ Verifier</text>
+  <text x="685" y="474" font-family="'Segoe UI', sans-serif" font-size="9" fill="#a855f7" text-anchor="middle">JSON consistency check</text>
+  <line x1="300" y1="464" x2="365" y2="464" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow_blue)"/>
+  <line x1="535" y1="464" x2="600" y2="464" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow_blue)"/>
+
+  <!-- Connection lines from layer 2 to layer 3 -->
+  <line x1="330" y1="278" x2="235" y2="306" stroke="#475569" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="500" y1="278" x2="655" y2="306" stroke="#475569" stroke-width="1.5" stroke-dasharray="4,3"/>
+</svg>

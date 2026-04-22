@@ -1,0 +1,111 @@
+<svg width="1200" height="300" viewBox="0 0 1200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0a0e1a"/>
+      <stop offset="50%" stop-color="#0d1b2e"/>
+      <stop offset="100%" stop-color="#0a0e1a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="400" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="300" fill="url(#bg)"/>
+
+  <!-- Grid lines -->
+  <line x1="0" y1="60" x2="1200" y2="60" stroke="#1e293b" stroke-width="1"/>
+  <line x1="0" y1="120" x2="1200" y2="120" stroke="#1e293b" stroke-width="1"/>
+  <line x1="0" y1="180" x2="1200" y2="180" stroke="#1e293b" stroke-width="1"/>
+  <line x1="0" y1="240" x2="1200" y2="240" stroke="#1e293b" stroke-width="1"/>
+  <line x1="200" y1="0" x2="200" y2="300" stroke="#1e293b" stroke-width="1"/>
+  <line x1="400" y1="0" x2="400" y2="300" stroke="#1e293b" stroke-width="1"/>
+  <line x1="600" y1="0" x2="600" y2="300" stroke="#1e293b" stroke-width="1"/>
+  <line x1="800" y1="0" x2="800" y2="300" stroke="#1e293b" stroke-width="1"/>
+  <line x1="1000" y1="0" x2="1000" y2="300" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Candlestick chart decoration (right side) -->
+  <!-- Candles -->
+  <rect x="820" y="80" width="14" height="60" fill="#ef4444" rx="1"/>
+  <line x1="827" y1="70" x2="827" y2="150" stroke="#ef4444" stroke-width="2"/>
+  <rect x="850" y="100" width="14" height="40" fill="#10b981" rx="1"/>
+  <line x1="857" y1="90" x2="857" y2="155" stroke="#10b981" stroke-width="2"/>
+  <rect x="880" y="85" width="14" height="50" fill="#10b981" rx="1"/>
+  <line x1="887" y1="75" x2="887" y2="145" stroke="#10b981" stroke-width="2"/>
+  <rect x="910" y="70" width="14" height="65" fill="#ef4444" rx="1"/>
+  <line x1="917" y1="60" x2="917" y2="150" stroke="#ef4444" stroke-width="2"/>
+  <rect x="940" y="90" width="14" height="45" fill="#10b981" rx="1"/>
+  <line x1="947" y1="80" x2="947" y2="145" stroke="#10b981" stroke-width="2"/>
+  <rect x="970" y="75" width="14" height="55" fill="#10b981" rx="1"/>
+  <line x1="977" y1="65" x2="977" y2="140" stroke="#10b981" stroke-width="2"/>
+  <rect x="1000" y="60" width="14" height="70" fill="#10b981" rx="1"/>
+  <line x1="1007" y1="50" x2="1007" y2="140" stroke="#10b981" stroke-width="2"/>
+  <rect x="1030" y="80" width="14" height="55" fill="#ef4444" rx="1"/>
+  <line x1="1037" y1="70" x2="1037" y2="150" stroke="#ef4444" stroke-width="2"/>
+  <rect x="1060" y="55" width="14" height="75" fill="#10b981" rx="1"/>
+  <line x1="1067" y1="45" x2="1067" y2="140" stroke="#10b981" stroke-width="2"/>
+  <rect x="1090" y="50" width="14" height="80" fill="#10b981" rx="1"/>
+  <line x1="1097" y1="40" x2="1097" y2="140" stroke="#10b981" stroke-width="2"/>
+  <rect x="1120" y="65" width="14" height="60" fill="#10b981" rx="1"/>
+  <line x1="1127" y1="55" x2="1127" y2="135" stroke="#10b981" stroke-width="2"/>
+  <rect x="1150" y="45" width="14" height="85" fill="#10b981" rx="1"/>
+  <line x1="1157" y1="35" x2="1157" y2="140" stroke="#10b981" stroke-width="2"/>
+
+  <!-- Moving average line -->
+  <polyline points="820,140 857,130 887,125 917,135 947,120 977,110 1007,100 1037,115 1067,95 1097,85 1127,90 1157,75"
+    fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,2" opacity="0.8"/>
+
+  <!-- Volume bars at bottom -->
+  <rect x="820" y="200" width="14" height="35" fill="#ef4444" opacity="0.4" rx="1"/>
+  <rect x="850" y="215" width="14" height="20" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="880" y="210" width="14" height="25" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="910" y="205" width="14" height="30" fill="#ef4444" opacity="0.4" rx="1"/>
+  <rect x="940" y="218" width="14" height="17" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="970" y="210" width="14" height="25" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="1000" y="200" width="14" height="35" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="1030" y="212" width="14" height="23" fill="#ef4444" opacity="0.4" rx="1"/>
+  <rect x="1060" y="205" width="14" height="30" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="1090" y="198" width="14" height="37" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="1120" y="208" width="14" height="27" fill="#10b981" opacity="0.4" rx="1"/>
+  <rect x="1150" y="195" width="14" height="40" fill="#10b981" opacity="0.4" rx="1"/>
+
+  <!-- Glowing accent bar -->
+  <rect x="0" y="0" width="6" height="300" fill="url(#accent)"/>
+
+  <!-- Main title -->
+  <text x="80" y="120" font-family="'Segoe UI', -apple-system, sans-serif" font-size="72" font-weight="700" fill="white" filter="url(#glow)">Options</text>
+  <text x="80" y="120" font-family="'Segoe UI', -apple-system, sans-serif" font-size="72" font-weight="700" fill="url(#accent)">AI</text>
+  <text x="80" y="120" font-family="'Segoe UI', -apple-system, sans-serif" font-size="72" font-weight="700">
+    <tspan fill="white">Options</tspan><tspan fill="url(#accent)">AI</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="82" y="160" font-family="'Segoe UI', -apple-system, sans-serif" font-size="22" fill="#94a3b8">
+    AI-Powered Options Strategy Platform for Retail Investors
+  </text>
+
+  <!-- Tag pills -->
+  <rect x="82" y="185" width="130" height="28" rx="14" fill="#1e3a5f"/>
+  <text x="147" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#60a5fa" text-anchor="middle">📊 Real Data</text>
+
+  <rect x="224" y="185" width="145" height="28" rx="14" fill="#1a3a2e"/>
+  <text x="296" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#34d399" text-anchor="middle">🤖 Multi-Agent AI</text>
+
+  <rect x="381" y="185" width="145" height="28" rx="14" fill="#2d1b4e"/>
+  <text x="453" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#a78bfa" text-anchor="middle">⚡ FastAPI + Next.js</text>
+
+  <rect x="538" y="185" width="110" height="28" rx="14" fill="#3a2000"/>
+  <text x="593" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#fbbf24" text-anchor="middle">🌍 EN / 中文</text>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="295" width="1200" height="5" fill="url(#accent)" opacity="0.5"/>
+</svg>
