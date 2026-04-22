@@ -34,3 +34,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Claude Code IDE settings (may contain API keys in allowed commands)
+.claude/
+backend/data/*.db

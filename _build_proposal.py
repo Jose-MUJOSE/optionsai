@@ -6,7 +6,8 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-OUT_PATH = r"C:\Users\yuyiz\OneDrive\Desktop\OptionsAI_Proposal.docx"
+import pathlib
+OUT_PATH = pathlib.Path(__file__).parent / "OptionsAI_Proposal.docx"
 
 doc = Document()
 
