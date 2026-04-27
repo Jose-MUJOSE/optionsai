@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Check, Star } from "lucide-react";
+import { BarChart3, Check, Star, Home as HomeIcon } from "lucide-react";
 import TickerSearch from "@/components/TickerSearch";
 import MarketDashboard from "@/components/MarketDashboard";
 import MarketForecast from "@/components/MarketForecast";
@@ -29,6 +29,7 @@ import AnimatedBackground from "@/components/AnimatedBackground";
 import Sidebar, { type AppView } from "@/components/Sidebar";
 import Watchlist from "@/components/Watchlist";
 import NewsPanel from "@/components/NewsPanel";
+import TraderAgent from "@/components/TraderAgent";
 import { useAppStore } from "@/lib/store";
 import { useWatchlist } from "@/lib/watchlist";
 import { t } from "@/lib/i18n";
@@ -52,10 +53,16 @@ function readStoredWidth(key: string, fallback: number): number {
 }
 
 export default function Home() {
-  const { isChatOpen, marketData, locale, searchTicker } = useAppStore();
+  const { isChatOpen, marketData, locale, searchTicker, goHome } = useAppStore();
   const { items: watchlistItems, add: addToWatchlist, remove: removeFromWatchlist } = useWatchlist();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<AppView>("dashboard");
+
+  /** Click home/logo: clear ticker AND switch to dashboard view. */
+  const handleGoHome = useCallback(() => {
+    goHome();
+    setView("dashboard");
+  }, [goHome]);
 
   // Two independently resizable sidebars (persisted to localStorage).
   const [leftWidth, setLeftWidth] = useState<number>(LEFT_DEFAULT);
@@ -167,6 +174,7 @@ export default function Home() {
           view={view}
           onViewChange={setView}
           onOpenSettings={() => setSettingsOpen(true)}
+          onGoHome={handleGoHome}
           width={leftWidth}
         />
 
@@ -204,13 +212,26 @@ export default function Home() {
                   {view === "watchlist"  && t("watchlist.title", locale)}
                   {view === "news"       && t("news.title", locale)}
                   {view === "strategies" && t("nav.strategies", locale)}
+                  {view === "trader"     && t("trader.title", locale)}
                   {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
                   {view === "scanner"    && (locale === "zh" ? "策略扫描器" : "Strategy Scanner")}
                   {view === "alerts"     && (locale === "zh" ? "事件提醒" : "Event Alerts")}
                 </h1>
               </div>
 
-              {/* Dashboard: Add-to-Watchlist + search */}
+              {/* Home button — visible whenever a ticker is loaded; click clears + returns to dashboard */}
+              {marketData && (
+                <button
+                  onClick={handleGoHome}
+                  title={t("home.backToHome", locale)}
+                  className="h-10 px-4 text-xs font-semibold rounded-full flex items-center gap-2 transition-all shrink-0 cursor-pointer bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:-translate-y-px hover:shadow-md"
+                >
+                  <HomeIcon className="w-3.5 h-3.5" />
+                  {t("home.backToHome", locale)}
+                </button>
+              )}
+
+              {/* Dashboard: Add-to-Watchlist */}
               {view === "dashboard" && marketData && (
                 <button
                   onClick={toggleWatchlist}
@@ -235,7 +256,7 @@ export default function Home() {
                 </button>
               )}
 
-              {(view === "dashboard" || view === "strategies") && (
+              {(view === "dashboard" || view === "strategies" || view === "trader") && (
                 <TickerSearch showChips={false} />
               )}
             </header>
@@ -262,6 +283,9 @@ export default function Home() {
                 )}
               </div>
             )}
+
+            {/* VIEW: Trader Agent (Professional Multi-Perspective Analysis) */}
+            {view === "trader" && <TraderAgent />}
 
             {/* VIEW: Watchlist */}
             {view === "watchlist" && <Watchlist onOpenTicker={handleOpenTicker} />}

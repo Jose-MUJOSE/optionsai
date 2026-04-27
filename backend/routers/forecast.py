@@ -10,9 +10,26 @@ from typing import Optional
 from datetime import datetime
 from backend.services.data_fetcher import DataFetcher
 from backend.services.ai_assistant import client, MODEL, build_system_prompt
+from backend.services.ticker_validator import validate_us_ticker
 from backend.models.schemas import (
     ChatContext, MarketData, Strategy, StrategyRequest, StrategyResponse,
 )
+
+
+def _ensure_us_ticker(ticker: str) -> str:
+    """Validate ticker is US format. Raises HTTP 422 if not."""
+    t = ticker.upper().strip()
+    result = validate_us_ticker(t)
+    if not result.valid:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_TICKER",
+                "message_en": result.reason_en,
+                "message_zh": result.reason_zh,
+            },
+        )
+    return t
 
 router = APIRouter(tags=["Forecast & Analysis"])
 
@@ -35,7 +52,7 @@ async def get_market_intel(ticker: str, req: MarketIntelRequest = None):
     if req is None:
         req = MarketIntelRequest()
 
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker)
     lang = "Chinese" if req.locale == "zh" else "English"
 
     try:
@@ -222,7 +239,7 @@ async def get_forecast(ticker: str, req: ForecastRequest = None):
     if req is None:
         req = ForecastRequest()
 
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker)
 
     try:
         spot_data = await _fetcher.get_spot_price(ticker)

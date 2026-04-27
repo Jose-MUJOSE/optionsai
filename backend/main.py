@@ -35,9 +35,10 @@ async def health_check():
 
 
 # 注册 API 路由
-from backend.routers import market_data, strategies, chat, forecast, settings
+from backend.routers import market_data, strategies, chat, forecast, settings, trader
 app.include_router(market_data.router, prefix="/api")
 app.include_router(strategies.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(forecast.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(trader.router, prefix="/api")

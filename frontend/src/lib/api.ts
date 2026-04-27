@@ -6,11 +6,34 @@ import type { MarketData, StrategyResponse, TrendExpectation, ChatMessage, ChatC
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/**
+ * Custom error class so the UI can distinguish "ticker is invalid" from
+ * "ticker exists but data fetch failed". Carries bilingual messages.
+ */
+export class InvalidTickerError extends Error {
+  readonly code = "INVALID_TICKER" as const;
+  readonly messageEn: string;
+  readonly messageZh: string;
+  constructor(messageEn: string, messageZh: string) {
+    super(messageEn);
+    this.messageEn = messageEn;
+    this.messageZh = messageZh;
+  }
+}
+
 export async function fetchMarketData(ticker: string): Promise<MarketData> {
   const res = await fetch(`${API_URL}/api/market-data/${ticker}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to fetch market data");
+    // Backend returns HTTP 422 with structured payload for invalid tickers.
+    if (res.status === 422 && err?.detail?.code === "INVALID_TICKER") {
+      throw new InvalidTickerError(
+        err.detail.message_en || "Invalid ticker",
+        err.detail.message_zh || "无效股票代码",
+      );
+    }
+    const detail = typeof err.detail === "string" ? err.detail : (err.detail?.message_en ?? res.statusText);
+    throw new Error(detail || "Failed to fetch market data");
   }
   return res.json();
 }
@@ -620,4 +643,130 @@ export async function* streamChat(
       }
     }
   }
+}
+
+// ============================================================
+// Professional Trader Agent — multi-perspective analysis
+// ============================================================
+
+export type TraderMode = "stock" | "options";
+export type ResearcherStance = "bullish" | "bearish" | "neutral";
+
+export interface ResearcherResult {
+  id: string;
+  name_en: string;
+  name_zh: string;
+  icon: string;
+  color: string;
+  stance: ResearcherStance;
+  confidence: number;
+  headline: string;
+  key_points: string[];
+  evidence: string;
+  risks: string;
+}
+
+export interface ManagerStockDecision {
+  decision: "buy" | "hold" | "sell" | string;
+  conviction: number;
+  time_horizon?: string;
+  thesis?: string;
+  entry_zone?: string;
+  target_price?: string;
+  stop_loss?: string;
+  position_sizing?: string;
+  key_catalysts?: string[];
+  main_risks?: string[];
+  debate_summary?: string;
+}
+
+export interface ManagerOptionsDecision {
+  decision: string;
+  conviction: number;
+  direction?: "bullish" | "bearish" | "neutral" | string;
+  thesis?: string;
+  structure?: string;
+  expiration?: string;
+  max_loss?: string;
+  max_profit?: string;
+  breakeven?: string;
+  win_probability?: string;
+  key_catalysts?: string[];
+  main_risks?: string[];
+  debate_summary?: string;
+}
+
+export type ManagerDecision = ManagerStockDecision | ManagerOptionsDecision;
+
+export type TraderEvent =
+  | { type: "phase"; phase: "gathering_data" | "research_start" | "manager_start" }
+  | { type: "researcher"; result: ResearcherResult }
+  | { type: "manager"; result: ManagerDecision & { mode: TraderMode; ticker: string } }
+  | { type: "done"; researchers: ResearcherResult[]; manager: ManagerDecision }
+  | { type: "error"; message: string };
+
+/** Stream the trader pipeline via SSE; yields parsed event objects. */
+export async function* streamTraderAgent(params: {
+  ticker: string;
+  mode: TraderMode;
+  locale: "zh" | "en";
+}): AsyncGenerator<TraderEvent> {
+  const res = await fetch(`${API_URL}/api/trader/analyze/${params.ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: params.mode, locale: params.locale }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    if (res.status === 422 && err?.detail?.code === "INVALID_TICKER") {
+      throw new InvalidTickerError(
+        err.detail.message_en || "Invalid ticker",
+        err.detail.message_zh || "无效股票代码",
+      );
+    }
+    throw new Error(typeof err.detail === "string" ? err.detail : "Trader agent failed");
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      if (!chunk.startsWith("data: ")) continue;
+      const payload = chunk.slice(6).trim();
+      if (!payload) continue;
+      try {
+        yield JSON.parse(payload) as TraderEvent;
+      } catch {
+        // ignore malformed chunks
+      }
+    }
+  }
+}
+
+/** Generate and download a Word .docx report from completed trader analysis. */
+export async function downloadTraderReport(params: {
+  ticker: string;
+  mode: TraderMode;
+  locale: "zh" | "en";
+  researchers: ResearcherResult[];
+  manager: ManagerDecision;
+}): Promise<Blob> {
+  const res = await fetch(`${API_URL}/api/trader/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Report generation failed");
+  }
+  return res.blob();
 }

@@ -7,11 +7,30 @@ GET /api/options-chain/{ticker} — 指定到期日的完整期权链
 from fastapi import APIRouter, HTTPException
 from backend.models.schemas import MarketData, OptionsChain, OptionContract, OptionType
 from backend.services.data_fetcher import DataFetcher
+from backend.services.ticker_validator import validate_us_ticker
 
 router = APIRouter(tags=["Market Data"])
 
 # 全局 DataFetcher 实例
 _fetcher = DataFetcher()
+
+
+def _ensure_us_ticker(ticker: str) -> str:
+    """Validate ticker is US format. Raises HTTP 422 if not."""
+    t = ticker.upper().strip()
+    result = validate_us_ticker(t)
+    if not result.valid:
+        # Use HTTP 422 (Unprocessable Entity) so frontend can distinguish
+        # validation errors from "ticker exists but data fetch failed".
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_TICKER",
+                "message_en": result.reason_en,
+                "message_zh": result.reason_zh,
+            },
+        )
+    return t
 
 
 @router.get("/market-data/{ticker}", response_model=MarketData)
@@ -20,10 +39,12 @@ async def get_market_data(ticker: str):
     获取 Ticker 的完整市场数据
     包含：股价、IV、IV Rank/Percentile、HV、财报日、到期日列表
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker)
     try:
         data = await _fetcher.get_full_market_data(ticker)
         return MarketData(**data)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch data for {ticker}: {str(e)}")
 

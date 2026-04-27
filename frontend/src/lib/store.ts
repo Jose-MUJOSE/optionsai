@@ -126,6 +126,8 @@ interface AppState {
   clearChat: () => void;
   clearCurrentTickerMemory: () => void;
   setLocale: (locale: Locale) => void;
+  /** Clear current ticker and return to the empty home state. */
+  goHome: () => void;
   fetchOHLCV: (ticker: string, range?: string) => Promise<void>;
   setOHLCVRange: (range: string) => void;
   fetchFullOptionsChain: (ticker: string, expiration: string) => Promise<void>;
@@ -636,6 +638,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       clearTickerChat(currentTicker);
       set({ chatMessages: [] });
     }
+  },
+  goHome: () => {
+    set({
+      ticker: "",
+      marketData: null,
+      marketError: null,
+      strategies: [],
+      forecasts: [],
+      forecastError: null,
+      marketIntel: null,
+      marketIntelError: null,
+      ivTermStructure: [],
+      optionsSnapshot: null,
+      ohlcvData: [],
+      shortData: null,
+      earningsMoves: null,
+      gexData: null,
+      unusualFlow: null,
+      topPickAnalysis: "",
+      selectedExpiration: null,
+      selectedTrend: null,
+      chatMessages: [],
+    });
   },
   setLocale: (locale: Locale) => {
     set({ locale });

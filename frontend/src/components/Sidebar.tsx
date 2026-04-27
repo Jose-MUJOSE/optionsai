@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell } from "lucide-react";
+import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell, Brain } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 
@@ -9,6 +9,7 @@ export type AppView =
   | "watchlist"
   | "news"
   | "strategies"
+  | "trader"
   | "paper"
   | "scanner"
   | "alerts"
@@ -18,20 +19,23 @@ interface SidebarProps {
   view: AppView;
   onViewChange: (view: AppView) => void;
   onOpenSettings: () => void;
+  /** Click on the OptionsAI logo — clears ticker and returns to home view. */
+  onGoHome: () => void;
   /** Current pixel width; parent controls resize state. */
   width: number;
 }
 
-export default function Sidebar({ view, onViewChange, onOpenSettings, width }: SidebarProps) {
+export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, width }: SidebarProps) {
   const { locale, setLocale } = useAppStore();
 
   const compact = width < 190; // collapse labels below this width
 
-  const items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string }> = [
+  const items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string; badge?: string }> = [
     { id: "dashboard",  icon: LayoutDashboard, label: t("nav.dashboard",  locale) },
+    { id: "trader",     icon: Brain,           label: t("trader.title",   locale), badge: "NEW" },
+    { id: "strategies", icon: Target,          label: t("nav.strategies", locale) },
     { id: "watchlist",  icon: Star,            label: t("nav.watchlist",  locale) },
     { id: "news",       icon: Newspaper,       label: t("nav.news",       locale) },
-    { id: "strategies", icon: Target,          label: t("nav.strategies", locale) },
     { id: "paper",      icon: FolderOpen,      label: locale === "zh" ? "模拟仓位" : "Paper" },
     { id: "scanner",    icon: Radar,           label: locale === "zh" ? "策略扫描器" : "Scanner" },
     { id: "alerts",     icon: Bell,            label: locale === "zh" ? "事件提醒" : "Alerts" },
@@ -48,10 +52,15 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, width }: S
         className="absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-transparent via-[var(--accent)] to-transparent opacity-30 pointer-events-none"
       />
 
-      {/* Brand */}
-      <div className="px-5 py-6 border-b border-[var(--line-soft)]">
+      {/* Brand — clickable returns to home */}
+      <button
+        onClick={onGoHome}
+        title={t("home.backToHome", locale)}
+        aria-label={t("home.backToHome", locale)}
+        className="w-full px-5 py-6 border-b border-[var(--line-soft)] cursor-pointer hover:bg-[var(--bg-2)]/40 transition-colors group/brand"
+      >
         <div className="flex items-center gap-3">
-          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent)] via-[var(--accent-bright)] to-[var(--accent-violet)] shadow-[var(--shadow-blue)] flex items-center justify-center overflow-hidden">
+          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent)] via-[var(--accent-bright)] to-[var(--accent-violet)] shadow-[var(--shadow-blue)] flex items-center justify-center overflow-hidden group-hover/brand:scale-105 group-hover/brand:rotate-[8deg] transition-transform duration-300">
             <span className="text-white font-bold text-sm tracking-tight relative z-10">O</span>
             {/* rotating light sweep inside logo */}
             <div aria-hidden className="absolute inset-0 opacity-40">
@@ -59,7 +68,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, width }: S
             </div>
           </div>
           {!compact && (
-            <div className="leading-tight min-w-0">
+            <div className="leading-tight min-w-0 text-left">
               <div className="text-[15px] font-semibold tracking-tight whitespace-nowrap">
                 <span className="text-gradient-blue">Options</span>
                 <span className="text-[var(--text-0)]">AI</span>
@@ -70,11 +79,11 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, width }: S
             </div>
           )}
         </div>
-      </div>
+      </button>
 
       {/* Nav items */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {items.map(({ id, icon: Icon, label }) => {
+        {items.map(({ id, icon: Icon, label, badge }) => {
           const active = view === id;
           return (
             <button
@@ -101,7 +110,16 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, width }: S
                 }`}
                 strokeWidth={active ? 2.4 : 1.85}
               />
-              {!compact && <span className="truncate">{label}</span>}
+              {!compact && (
+                <>
+                  <span className="truncate flex-1 text-left">{label}</span>
+                  {badge && (
+                    <span className="text-[8.5px] font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white shadow-sm">
+                      {badge}
+                    </span>
+                  )}
+                </>
+              )}
             </button>
           );
         })}
