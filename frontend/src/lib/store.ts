@@ -9,8 +9,43 @@ import type {
   TrendExpectation,
   ChatMessage,
 } from "@/types";
-import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow } from "./api";
-import type { ForecastItem, MarketIntelResponse, OptionsSnapshot, IVTermItem, OHLCVBar, FullOptionsChain, ShortDataResponse, EarningsMovesResponse, GEXResponse, UnusualFlowResponse } from "./api";
+import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent } from "./api";
+import type { ForecastItem, MarketIntelResponse, OptionsSnapshot, IVTermItem, OHLCVBar, FullOptionsChain, ShortDataResponse, EarningsMovesResponse, GEXResponse, UnusualFlowResponse, ResearcherResult, ManagerDecision, TraderMode } from "./api";
+
+/** A completed Trader Agent analysis saved for re-viewing later. */
+export interface TraderHistoryEntry {
+  id: string;             // unique ID (timestamp-based)
+  ticker: string;
+  mode: TraderMode;
+  locale: Locale;
+  timestamp: number;      // ms epoch
+  researchers: ResearcherResult[];
+  manager: ManagerDecision;
+}
+
+const TRADER_HISTORY_KEY = "optionsai.traderHistory.v1";
+const TRADER_HISTORY_MAX = 30;
+
+function loadTraderHistory(): TraderHistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(TRADER_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, TRADER_HISTORY_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTraderHistory(items: TraderHistoryEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TRADER_HISTORY_KEY, JSON.stringify(items.slice(0, TRADER_HISTORY_MAX)));
+  } catch {
+    // ignore quota errors
+  }
+}
 import type { Locale } from "./i18n";
 import { loadTickerChat, saveTickerChat, clearTickerChat } from "./chatMemory";
 
@@ -101,6 +136,19 @@ interface AppState {
   // 多Agent状态
   agentStatus: "idle" | "researcher" | "analyst" | "verifier" | "verified" | "retry";
 
+  // ==== Professional Trader Agent ====
+  // Lives in the global store so that the analysis keeps running when the
+  // user navigates to other panels (Dashboard, Strategies, etc.). Without
+  // this, switching views unmounts TraderAgent and aborts the SSE stream.
+  traderTicker: string | null;
+  traderMode: "stock" | "options";
+  traderPhase: "idle" | "gathering" | "research" | "manager" | "done" | "error";
+  traderResearchers: ResearcherResult[];
+  traderManager: ManagerDecision | null;
+  traderError: string | null;
+  /** Saved analyses for re-viewing later (persisted to localStorage). */
+  traderHistory: TraderHistoryEntry[];
+
   // Actions
   searchTicker: (ticker: string) => Promise<void>;
   fetchForecast: (ticker: string) => Promise<void>;
@@ -128,6 +176,19 @@ interface AppState {
   setLocale: (locale: Locale) => void;
   /** Clear current ticker and return to the empty home state. */
   goHome: () => void;
+
+  // ==== Trader Agent actions ====
+  setTraderMode: (m: TraderMode) => void;
+  /** Start a new trader analysis. Runs in the background — won't be cancelled if the user navigates away. */
+  runTraderAnalysis: (ticker: string) => Promise<void>;
+  /** Reset live state but keep history intact. */
+  resetTraderAnalysis: () => void;
+  /** Restore a saved analysis into live state for viewing. */
+  loadTraderHistory: (id: string) => void;
+  /** Permanently delete one entry from the saved history. */
+  deleteTraderHistory: (id: string) => void;
+  /** Re-hydrate trader history from localStorage on first mount. */
+  hydrateTraderHistory: () => void;
   fetchOHLCV: (ticker: string, range?: string) => Promise<void>;
   setOHLCVRange: (range: string) => void;
   fetchFullOptionsChain: (ticker: string, expiration: string) => Promise<void>;
@@ -208,6 +269,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   isUnusualFlowLoading: false,
 
   agentStatus: "idle" as "idle" | "researcher" | "analyst" | "verifier" | "verified" | "retry",
+
+  // Trader Agent — initial state
+  traderTicker: null,
+  traderMode: "stock" as TraderMode,
+  traderPhase: "idle" as "idle" | "gathering" | "research" | "manager" | "done" | "error",
+  traderResearchers: [] as ResearcherResult[],
+  traderManager: null as ManagerDecision | null,
+  traderError: null as string | null,
+  traderHistory: [] as TraderHistoryEntry[],
 
   // ---- Actions ----
 
@@ -675,6 +745,109 @@ export const useAppStore = create<AppState>((set, get) => ({
           get().fetchTopPickAnalysis();
         }
       }, 50);
+    }
+  },
+
+  // ============================================================
+  // Trader Agent actions
+  // ============================================================
+
+  setTraderMode: (m) => set({ traderMode: m }),
+
+  resetTraderAnalysis: () => set({
+    traderPhase: "idle",
+    traderResearchers: [],
+    traderManager: null,
+    traderError: null,
+    traderTicker: null,
+  }),
+
+  hydrateTraderHistory: () => {
+    if (typeof window === "undefined") return;
+    const items = loadTraderHistory();
+    set({ traderHistory: items });
+  },
+
+  loadTraderHistory: (id) => {
+    const entry = get().traderHistory.find((e) => e.id === id);
+    if (!entry) return;
+    set({
+      traderTicker: entry.ticker,
+      traderMode: entry.mode,
+      traderPhase: "done",
+      traderResearchers: entry.researchers,
+      traderManager: entry.manager,
+      traderError: null,
+    });
+  },
+
+  deleteTraderHistory: (id) => {
+    const next = get().traderHistory.filter((e) => e.id !== id);
+    saveTraderHistory(next);
+    set({ traderHistory: next });
+  },
+
+  /**
+   * Run a fresh trader analysis. The async generator runs in the background;
+   * because we update state via set() (and not via local React state), the
+   * stream continues even if the user navigates away from TraderAgent.tsx.
+   *
+   * On completion, the result is auto-saved to localStorage history.
+   */
+  runTraderAnalysis: async (ticker: string) => {
+    const { traderMode, locale } = get();
+    set({
+      traderTicker: ticker,
+      traderPhase: "gathering",
+      traderResearchers: [],
+      traderManager: null,
+      traderError: null,
+    });
+    try {
+      for await (const event of streamTraderAgent({ ticker, mode: traderMode, locale })) {
+        if (event.type === "phase") {
+          if (event.phase === "research_start") set({ traderPhase: "research" });
+          else if (event.phase === "manager_start") set({ traderPhase: "manager" });
+          else if (event.phase === "gathering_data") set({ traderPhase: "gathering" });
+        } else if (event.type === "researcher") {
+          // Dedupe by id in case of replay
+          const prev = get().traderResearchers;
+          const others = prev.filter((p) => p.id !== event.result.id);
+          set({ traderResearchers: [...others, event.result] });
+        } else if (event.type === "manager") {
+          set({ traderManager: event.result });
+        } else if (event.type === "done") {
+          // Final consolidated state — and auto-persist to history
+          const entry: TraderHistoryEntry = {
+            id: `${Date.now()}-${ticker}-${traderMode}`,
+            ticker,
+            mode: traderMode,
+            locale,
+            timestamp: Date.now(),
+            researchers: event.researchers,
+            manager: event.manager,
+          };
+          const nextHistory = [entry, ...get().traderHistory].slice(0, TRADER_HISTORY_MAX);
+          saveTraderHistory(nextHistory);
+          set({
+            traderResearchers: event.researchers,
+            traderManager: event.manager,
+            traderPhase: "done",
+            traderHistory: nextHistory,
+          });
+        } else if (event.type === "error") {
+          set({ traderError: event.message, traderPhase: "error" });
+        }
+      }
+      // If the stream ended without a "done" event, still mark as done if we have a manager result
+      if (get().traderPhase === "manager" && get().traderManager) {
+        set({ traderPhase: "done" });
+      }
+    } catch (e) {
+      set({
+        traderError: e instanceof Error ? e.message : String(e),
+        traderPhase: "error",
+      });
     }
   },
 }));

@@ -1,14 +1,14 @@
 """
 Professional Trader Agent — multi-perspective debate pipeline.
 
-Eight specialist researchers each produce an independent perspective on the
+Nine specialist researchers each produce an independent perspective on the
 target ticker, then a portfolio manager synthesises a final recommendation.
 
 The pipeline is structured rather than waterfall:
   1. Research Phase (parallel): Bull, Bear, Technical, Fundamental,
-     Market, Industry, Financial, News researchers
-  2. Debate Phase (sequential): bulls and bears critique each other
-  3. Decision Phase: Portfolio Manager produces final call
+     Market, Industry, Financial, News, Options researchers
+  2. Decision Phase: Portfolio Manager produces final call with
+     per-researcher synthesis showing exactly how each voice was weighted
 
 Output is a strict JSON object so the frontend can render each section
 independently in a grid layout (not a single waterfall).
@@ -165,6 +165,30 @@ RESEARCHER_SPECS = {
             "内部人交易）。识别未来 30 天内最重要的单一催化剂，并评估其偏多、偏空还是中性。"
         ),
     },
+    "options": {
+        "name_en": "Options Researcher",
+        "name_zh": "期权研究员",
+        "icon": "🎯",
+        "color": "teal",
+        "role_en": (
+            "You are an options-flow and volatility researcher. Use the Implied Volatility level, "
+            "IV Rank, IV Percentile, ATM Greeks (Delta/Gamma/Theta/Vega), and the Gamma Exposure (GEX) "
+            "regime if provided. Determine: (1) is IV rich or cheap relative to history; "
+            "(2) is the dealer-positioning regime amplifying or compressing moves; "
+            "(3) what does the ATM term structure imply about expected near-term move size; "
+            "(4) which side of the chain is showing flow conviction. "
+            "Conclude with a directional or volatility-regime read that informs strategy selection."
+        ),
+        "role_zh": (
+            "你是期权资金流与波动率研究员。请利用隐含波动率（IV）、IV Rank、IV Percentile、"
+            "平值希腊字母（Delta/Gamma/Theta/Vega）以及 Gamma 敞口（GEX）机制（若提供）。判断："
+            "(1) IV 相对历史是偏贵还是偏便宜；"
+            "(2) 经销商持仓机制是放大还是压制波动；"
+            "(3) ATM 期限结构暗示的近期预期波动幅度；"
+            "(4) 期权链哪一侧显示了资金信念。"
+            "最后给出方向性或波动率机制判断，用于策略选择。"
+        ),
+    },
 }
 
 
@@ -173,8 +197,17 @@ RESEARCHER_SPECS = {
 # ============================================================
 
 # Strict instruction injected into every researcher prompt.
+# IMPORTANT: language enforcement is the first thing the model sees so all
+# fields — including "headline", "key_points", "evidence", "risks" — come
+# back in the same language. The previous version often mixed languages
+# because the schema field names were English.
 RESEARCHER_OUTPUT_INSTRUCTION_EN = """
 ## Output Format (STRICT)
+
+LANGUAGE: Write ALL string values in ENGLISH ONLY. Do not mix in any other language.
+Even though the JSON keys are in English, the VALUES (headline, key_points items,
+evidence, risks) must all be in English prose. No Chinese characters. No mixed-language
+sentences.
 
 Return ONLY a valid JSON object — no preamble, no closing remarks, no markdown fences.
 
@@ -182,10 +215,10 @@ Schema:
 {
   "stance": "bullish" | "bearish" | "neutral",
   "confidence": <integer 1-10>,
-  "headline": "<one-line summary, <=80 chars>",
-  "key_points": ["<point 1>", "<point 2>", "<point 3>"],
-  "evidence": "<2-3 sentences citing specific numbers from the data>",
-  "risks": "<1-2 sentences on what could invalidate this view>"
+  "headline": "<one-line summary, <=80 chars, ENGLISH>",
+  "key_points": ["<point 1, ENGLISH>", "<point 2, ENGLISH>", "<point 3, ENGLISH>"],
+  "evidence": "<2-3 sentences citing specific numbers from the data, ENGLISH>",
+  "risks": "<1-2 sentences on what could invalidate this view, ENGLISH>"
 }
 
 Use only data provided in the research context. Do not invent prices or facts.
@@ -194,16 +227,20 @@ Use only data provided in the research context. Do not invent prices or facts.
 RESEARCHER_OUTPUT_INSTRUCTION_ZH = """
 ## 输出格式（严格）
 
+语言要求：所有字符串字段的值必须**全部使用简体中文**。绝对不能混合使用英文和中文。
+即使 JSON 键名是英文（headline、key_points、evidence、risks），但**值必须全部是中文**。
+不要在同一段话里混合英文短语。专业术语首次出现时可在中文后用括号标注英文，但主体必须是中文。
+
 只返回一个有效的 JSON 对象——不要前言、不要总结、不要 markdown 代码块。
 
 Schema:
 {
   "stance": "bullish" | "bearish" | "neutral",
   "confidence": <1 到 10 的整数>,
-  "headline": "<一句话总结，不超过 80 字>",
-  "key_points": ["<要点 1>", "<要点 2>", "<要点 3>"],
-  "evidence": "<2-3 句话，引用数据中的具体数字>",
-  "risks": "<1-2 句话说明什么会推翻此观点>"
+  "headline": "<一句话总结，不超过 40 字，中文>",
+  "key_points": ["<要点 1，中文>", "<要点 2，中文>", "<要点 3，中文>"],
+  "evidence": "<2-3 句话，引用数据中的具体数字，中文>",
+  "risks": "<1-2 句话说明什么会推翻此观点，中文>"
 }
 
 只能使用上下文中提供的数据。不要捏造价格或事实。
@@ -212,21 +249,39 @@ Schema:
 MANAGER_OUTPUT_INSTRUCTION_EN = """
 ## Output Format (STRICT)
 
+LANGUAGE: Write ALL string values in ENGLISH ONLY. No mixed-language output.
 Return ONLY a valid JSON object — no preamble, no markdown fences.
+
+You MUST include `synthesis` — a per-researcher reasoning chain showing how each
+voice influenced your final call. Include all 9 researcher IDs:
+bull, bear, technical, fundamental, market, industry, financial, news, options.
 
 Schema for STOCK mode:
 {
   "decision": "buy" | "hold" | "sell",
   "conviction": <integer 1-10>,
-  "time_horizon": "<e.g. '1-3 months'>",
-  "thesis": "<3-4 sentences explaining the call>",
+  "time_horizon": "<e.g. '1-3 months', ENGLISH>",
+  "thesis": "<5-7 sentences. Open with the dominant signal, then explain how you weighted the bull vs bear case, what the technical/fundamental setup adds, and what the options market is pricing in. Final sentence: the trigger that confirms or invalidates the call.>",
   "entry_zone": "<price range, e.g. '$175-180'>",
-  "target_price": "<single price, e.g. '$210'>",
+  "target_price": "<single price>",
   "stop_loss": "<single price>",
   "position_sizing": "<e.g. '2-3% of portfolio'>",
-  "key_catalysts": ["<catalyst 1>", "<catalyst 2>"],
-  "main_risks": ["<risk 1>", "<risk 2>"],
-  "debate_summary": "<2 sentences summarising how bull and bear cases were weighed>"
+  "key_catalysts": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>"],
+  "main_risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
+  "synthesis": {
+    "bull":        "<1-2 sentences: how this researcher's view affected the decision>",
+    "bear":        "<1-2 sentences>",
+    "technical":   "<1-2 sentences>",
+    "fundamental": "<1-2 sentences>",
+    "market":      "<1-2 sentences>",
+    "industry":    "<1-2 sentences>",
+    "financial":   "<1-2 sentences>",
+    "news":        "<1-2 sentences>",
+    "options":     "<1-2 sentences>"
+  },
+  "consensus_score": "<e.g. '6 of 9 leaning bullish, 2 bearish, 1 neutral' — count from the briefings>",
+  "debate_summary": "<3-4 sentences walking through the strongest bull argument, the strongest bear argument, and why the bull/bear ultimately won (or why you held).>",
+  "actionable_steps": ["<step 1: e.g. 'Wait for a pullback to 175 before entering'>", "<step 2>", "<step 3>"]
 }
 
 Schema for OPTIONS mode:
@@ -234,54 +289,99 @@ Schema for OPTIONS mode:
   "decision": "<strategy name, e.g. 'Bull Call Spread'>",
   "conviction": <integer 1-10>,
   "direction": "bullish" | "bearish" | "neutral",
-  "thesis": "<3-4 sentences>",
-  "structure": "<exact legs, e.g. 'Buy 1 AAPL May 175C, Sell 1 AAPL May 185C'>",
+  "thesis": "<5-7 sentences. Open with the IV regime, then the directional read, then why this specific structure dominates alternatives.>",
+  "structure": "<exact legs, e.g. 'Buy 1 AAPL Jun 175C @ ~$8.50, Sell 1 AAPL Jun 185C @ ~$3.20, net debit ~$5.30'>",
   "expiration": "<target DTE range>",
-  "max_loss": "<absolute dollar or % of underlying>",
-  "max_profit": "<absolute dollar or % of underlying>",
+  "max_loss": "<absolute dollar>",
+  "max_profit": "<absolute dollar>",
   "breakeven": "<single price>",
   "win_probability": "<percentage>",
-  "key_catalysts": ["<catalyst 1>", "<catalyst 2>"],
-  "main_risks": ["<risk 1>", "<risk 2>"],
-  "debate_summary": "<2 sentences>"
+  "key_catalysts": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>"],
+  "main_risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
+  "synthesis": {
+    "bull":        "<1-2 sentences>",
+    "bear":        "<1-2 sentences>",
+    "technical":   "<1-2 sentences>",
+    "fundamental": "<1-2 sentences>",
+    "market":      "<1-2 sentences>",
+    "industry":    "<1-2 sentences>",
+    "financial":   "<1-2 sentences>",
+    "news":        "<1-2 sentences>",
+    "options":     "<1-2 sentences — most important for options mode>"
+  },
+  "consensus_score": "<e.g. '6 of 9 leaning bullish'>",
+  "debate_summary": "<3-4 sentences>",
+  "actionable_steps": ["<step 1>", "<step 2>", "<step 3>"]
 }
 """
 
 MANAGER_OUTPUT_INSTRUCTION_ZH = """
 ## 输出格式（严格）
 
+语言要求：所有字符串字段的值必须**全部使用简体中文**，不能混合使用英文。
+JSON 键名是英文，但所有值必须是中文。
+
 只返回一个有效的 JSON 对象——不要前言、不要 markdown 代码块。
+
+你**必须**包含 `synthesis` 字段——逐个研究员的推理链，说明每位研究员的观点如何影响你的最终决策。
+必须包含全部 9 位研究员的 ID：bull、bear、technical、fundamental、market、industry、financial、news、options。
 
 股票模式 Schema:
 {
   "decision": "buy" | "hold" | "sell",
   "conviction": <1 到 10 的整数>,
-  "time_horizon": "<例如 '1-3 个月'>",
-  "thesis": "<3-4 句话解释决策>",
+  "time_horizon": "<例如 '1-3 个月'，中文>",
+  "thesis": "<5-7 句话。开头点明主导信号，然后说明如何权衡多空双方，技术面/基本面贡献了什么，期权市场在定价什么。最后一句：什么信号会确认或推翻决策。中文。>",
   "entry_zone": "<价格区间，例如 '$175-180'>",
-  "target_price": "<目标价，例如 '$210'>",
+  "target_price": "<目标价>",
   "stop_loss": "<止损价>",
   "position_sizing": "<例如 '组合的 2-3%'>",
-  "key_catalysts": ["<催化剂 1>", "<催化剂 2>"],
-  "main_risks": ["<风险 1>", "<风险 2>"],
-  "debate_summary": "<2 句话总结多空辩论的权衡>"
+  "key_catalysts": ["<催化剂 1，中文>", "<催化剂 2，中文>", "<催化剂 3，中文>"],
+  "main_risks": ["<风险 1，中文>", "<风险 2，中文>", "<风险 3，中文>"],
+  "synthesis": {
+    "bull":        "<1-2 句话：看多研究员的观点如何影响决策。中文。>",
+    "bear":        "<1-2 句话，中文>",
+    "technical":   "<1-2 句话，中文>",
+    "fundamental": "<1-2 句话，中文>",
+    "market":      "<1-2 句话，中文>",
+    "industry":    "<1-2 句话，中文>",
+    "financial":   "<1-2 句话，中文>",
+    "news":        "<1-2 句话，中文>",
+    "options":     "<1-2 句话，中文>"
+  },
+  "consensus_score": "<例如 '9 位研究员中 6 位看多、2 位看空、1 位中性'——根据简报数清楚。中文。>",
+  "debate_summary": "<3-4 句话，走一遍最强的多头论点、最强的空头论点，以及最终多/空胜出（或观望）的原因。中文。>",
+  "actionable_steps": ["<步骤 1：例如 '等待回踩 175 美元再入场'，中文>", "<步骤 2，中文>", "<步骤 3，中文>"]
 }
 
 期权模式 Schema:
 {
-  "decision": "<策略名，例如 '牛市看涨价差'>",
+  "decision": "<策略名，例如 '牛市看涨价差 (Bull Call Spread)'>",
   "conviction": <1 到 10 的整数>,
   "direction": "bullish" | "bearish" | "neutral",
-  "thesis": "<3-4 句话>",
-  "structure": "<完整腿，例如 '买入 1 张 AAPL 5 月 175C，卖出 1 张 AAPL 5 月 185C'>",
-  "expiration": "<目标到期日范围>",
-  "max_loss": "<绝对美元或标的占比>",
-  "max_profit": "<绝对美元或标的占比>",
+  "thesis": "<5-7 句话。开头点明 IV 机制，再写方向判断，最后解释为何此结构优于其他备选。中文。>",
+  "structure": "<完整腿，例如 '买入 1 张 AAPL 6 月 175C @ 约 $8.50，卖出 1 张 AAPL 6 月 185C @ 约 $3.20，净支出约 $5.30'>",
+  "expiration": "<目标到期日范围，中文>",
+  "max_loss": "<绝对美元数额>",
+  "max_profit": "<绝对美元数额>",
   "breakeven": "<盈亏平衡价>",
   "win_probability": "<百分比>",
-  "key_catalysts": ["<催化剂 1>", "<催化剂 2>"],
-  "main_risks": ["<风险 1>", "<风险 2>"],
-  "debate_summary": "<2 句话>"
+  "key_catalysts": ["<催化剂 1，中文>", "<催化剂 2，中文>", "<催化剂 3，中文>"],
+  "main_risks": ["<风险 1，中文>", "<风险 2，中文>", "<风险 3，中文>"],
+  "synthesis": {
+    "bull":        "<1-2 句话，中文>",
+    "bear":        "<1-2 句话，中文>",
+    "technical":   "<1-2 句话，中文>",
+    "fundamental": "<1-2 句话，中文>",
+    "market":      "<1-2 句话，中文>",
+    "industry":    "<1-2 句话，中文>",
+    "financial":   "<1-2 句话，中文>",
+    "news":        "<1-2 句话，中文>",
+    "options":     "<1-2 句话——期权模式下此项最重要。中文。>"
+  },
+  "consensus_score": "<例如 '9 位研究员中 6 位看多'，中文>",
+  "debate_summary": "<3-4 句话，中文>",
+  "actionable_steps": ["<步骤 1，中文>", "<步骤 2，中文>", "<步骤 3，中文>"]
 }
 """
 
@@ -291,19 +391,71 @@ MANAGER_OUTPUT_INSTRUCTION_ZH = """
 # ============================================================
 
 async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
-    """Gather all data needed by every researcher in parallel."""
-    results = await asyncio.gather(
-        fetcher.get_full_market_data(ticker),
+    """
+    Gather all data needed by every researcher in parallel.
+
+    Includes options-specific data (snapshot + GEX) for the Options Researcher
+    when an expiration is resolvable. Failures on any single fetch are isolated
+    via gather(..., return_exceptions=True) so the pipeline never tanks
+    because one provider is rate-limited.
+    """
+    # First, fetch the core market data — we need its expiration list to
+    # decide which options snapshot to fetch.
+    try:
+        market = await fetcher.get_full_market_data(ticker)
+    except Exception:
+        market = {}
+
+    # Pick the first expiration ≈ 30 DTE (same heuristic as the dashboard)
+    expirations = market.get("expirations") or []
+    target_exp: Optional[str] = None
+    if expirations:
+        from datetime import datetime
+        now = datetime.utcnow()
+        scored = []
+        for exp in expirations:
+            try:
+                dte = (datetime.strptime(exp, "%Y-%m-%d") - now).days
+                scored.append((abs(dte - 30), exp))
+            except Exception:
+                continue
+        if scored:
+            scored.sort()
+            target_exp = scored[0][1]
+        else:
+            target_exp = expirations[0]
+
+    # Now fetch everything else in parallel
+    options_snapshot_task = (
+        fetcher.get_options_snapshot(ticker, target_exp) if target_exp else None
+    )
+    gex_task = (
+        fetcher.get_gamma_exposure(ticker, target_exp) if target_exp and hasattr(fetcher, "get_gamma_exposure") else None
+    )
+
+    tasks = [
         fetcher.get_historical_volatility(ticker),
         fetcher.get_news(ticker, limit=8),
         fetcher.get_analyst_data(ticker),
-        return_exceptions=True,
-    )
+    ]
+    if options_snapshot_task is not None:
+        tasks.append(options_snapshot_task)
+    if gex_task is not None:
+        tasks.append(gex_task)
 
-    market = results[0] if not isinstance(results[0], Exception) else {}
-    hv = results[1] if not isinstance(results[1], Exception) else {}
-    news = results[2] if not isinstance(results[2], Exception) else []
-    analyst = results[3] if not isinstance(results[3], Exception) else {}
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    hv = results[0] if not isinstance(results[0], Exception) else {}
+    news = results[1] if not isinstance(results[1], Exception) else []
+    analyst = results[2] if not isinstance(results[2], Exception) else {}
+    idx = 3
+    options_snapshot = {}
+    gex_data = {}
+    if options_snapshot_task is not None:
+        options_snapshot = results[idx] if not isinstance(results[idx], Exception) else {}
+        idx += 1
+    if gex_task is not None:
+        gex_data = results[idx] if not isinstance(results[idx], Exception) else {}
 
     return {
         "ticker": ticker,
@@ -311,6 +463,9 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
         "hv": hv,
         "news": news or [],
         "analyst": analyst or {},
+        "options_snapshot": options_snapshot or {},
+        "gex": gex_data or {},
+        "target_expiration": target_exp,
     }
 
 
@@ -365,6 +520,57 @@ def format_context_for_researcher(ctx: dict, mode: AnalysisMode, locale: str) ->
     else:
         lines.append("- No recent news")
 
+    # ATM Greeks + IV context — primarily fuels the Options Researcher
+    snap = ctx.get("options_snapshot") or {}
+    target_exp = ctx.get("target_expiration")
+    if snap and target_exp:
+        lines += ["", f"### Options Snapshot (expiration: {target_exp})"]
+        atm_call = (snap.get("atm_call") or {})
+        atm_put = (snap.get("atm_put") or {})
+        snap_iv = snap.get("atm_iv")
+        if snap_iv:
+            lines.append(f"- ATM IV: {snap_iv:.1f}%")
+        if atm_call:
+            d = atm_call.get("delta")
+            g = atm_call.get("gamma")
+            th = atm_call.get("theta")
+            v = atm_call.get("vega")
+            if any(x is not None for x in (d, g, th, v)):
+                parts = []
+                if d is not None: parts.append(f"Δ={d:+.3f}")
+                if g is not None: parts.append(f"Γ={g:+.4f}")
+                if th is not None: parts.append(f"Θ={th:+.3f}")
+                if v is not None: parts.append(f"ν={v:+.3f}")
+                lines.append(f"- ATM Call Greeks: {', '.join(parts)}")
+        if atm_put:
+            d = atm_put.get("delta")
+            g = atm_put.get("gamma")
+            th = atm_put.get("theta")
+            v = atm_put.get("vega")
+            if any(x is not None for x in (d, g, th, v)):
+                parts = []
+                if d is not None: parts.append(f"Δ={d:+.3f}")
+                if g is not None: parts.append(f"Γ={g:+.4f}")
+                if th is not None: parts.append(f"Θ={th:+.3f}")
+                if v is not None: parts.append(f"ν={v:+.3f}")
+                lines.append(f"- ATM Put Greeks: {', '.join(parts)}")
+
+    # Dealer Gamma Exposure (GEX)
+    gex = ctx.get("gex") or {}
+    if gex:
+        net = gex.get("net_gex_millions")
+        call_gex = gex.get("call_gex_millions")
+        put_gex = gex.get("put_gex_millions")
+        flip = gex.get("gamma_flip_strike")
+        lines += ["", "### Dealer Gamma Exposure (GEX)"]
+        if net is not None:
+            regime = "positive (vol-compressing)" if net >= 0 else "negative (vol-amplifying)"
+            lines.append(f"- Net GEX: ${net:.2f}M per 1% move ({regime})")
+        if call_gex is not None and put_gex is not None:
+            lines.append(f"- Call GEX: ${call_gex:.2f}M | Put GEX: ${put_gex:.2f}M")
+        if flip is not None:
+            lines.append(f"- Gamma Flip Strike: ${flip:.2f}")
+
     lines += ["", "---", ""]
     return "\n".join(line for line in lines if line)
 
@@ -395,8 +601,17 @@ class TraderAgentPipeline:
             else RESEARCHER_OUTPUT_INSTRUCTION_EN
         )
 
-        system_prompt = f"{role}\n\n{instruction}"
-        user_prompt = context_block
+        # Triple-redundant language directive: prefix the system prompt, suffix
+        # the user message. Models tend to drift if the directive only appears
+        # once, especially when the research context contains English data.
+        lang_directive = (
+            "重要：所有输出值必须全部使用简体中文。不要混合中英文。"
+            if locale == "zh"
+            else "IMPORTANT: All output values must be in ENGLISH ONLY. Do not mix languages."
+        )
+
+        system_prompt = f"{lang_directive}\n\n{role}\n\n{instruction}"
+        user_prompt = f"{context_block}\n\n{lang_directive}"
 
         try:
             resp = await self.client.chat.completions.create(
@@ -437,43 +652,74 @@ class TraderAgentPipeline:
         locale: str,
     ) -> dict:
         """Run the portfolio manager to synthesize a final decision."""
-        # Build a structured summary of every researcher's view
+        # Build a richer per-researcher briefing — the manager now needs the
+        # full key_points + evidence to write its synthesis section.
         digest_lines = []
         for r in researcher_results:
             name = r.get("name_zh") if locale == "zh" else r.get("name_en")
+            rid = r.get("id", "?")
             stance = r.get("stance", "neutral")
             conf = r.get("confidence", 5)
             headline = r.get("headline", "")
+            evidence = r.get("evidence", "")
+            kps = r.get("key_points") or []
             digest_lines.append(
-                f"- {name} ({stance}, conviction {conf}/10): {headline}"
+                f"\n#### [{rid}] {name} — stance: {stance} ({conf}/10)\n"
+                f"Headline: {headline}\n"
+                f"Evidence: {evidence}\n"
+                f"Key points: " + " | ".join(kps[:3])
             )
         digest = "\n".join(digest_lines)
 
         if locale == "zh":
             mode_phrase = "期权交易建议" if mode == "options" else "股票交易建议"
             role_intro = (
-                f"你是投资决策投资经理（PM）。你刚听取了 8 位研究员的简报，"
-                f"现在必须做出最终决定，给出{mode_phrase}。"
-                "权衡多空双方的论据，识别共识与分歧，做出果断决策。"
-                "不要骑墙——给出明确的方向。"
+                f"你是投资决策投资经理（Portfolio Manager / PM）。"
+                f"你刚听取了 9 位研究员（看多、看空、技术面、基本面、市场、行业、财务、新闻事件、期权）的完整简报。"
+                f"现在你必须做出最终决定，给出{mode_phrase}。\n\n"
+                "决策要求：\n"
+                "1. 权衡 9 位研究员的论据，识别共识与分歧；\n"
+                "2. 必须填写 synthesis 字段，逐个解释每位研究员的观点如何影响最终决策；\n"
+                "3. consensus_score 字段需要明确数清楚有多少位看多/看空/中性；\n"
+                "4. thesis 必须 5-7 句话，写出完整的推理链条；\n"
+                "5. debate_summary 必须详述最强多头与最强空头的论点，以及最终为何选边；\n"
+                "6. actionable_steps 至少 3 步具体执行步骤；\n"
+                "7. 不要骑墙——给出明确的方向和数字。\n"
+                "8. 所有输出必须使用简体中文。"
             )
             instruction = MANAGER_OUTPUT_INSTRUCTION_ZH
+            lang_directive = "重要：所有输出值必须全部使用简体中文。不要混合中英文。"
         else:
             mode_phrase = "options trade recommendation" if mode == "options" else "stock trade recommendation"
             role_intro = (
-                f"You are the Portfolio Manager. You just heard from 8 researchers and "
+                f"You are the Portfolio Manager. You just heard from 9 researchers "
+                f"(Bull, Bear, Technical, Fundamental, Market, Industry, Financial, News & Events, Options) "
                 f"must now make the final {mode_phrase}. Weigh the bull and bear arguments, "
                 "identify consensus and disagreement, and make a decisive call. "
                 "Do not sit on the fence — give a clear direction."
             )
+            role_intro += (
+                "and must now make the final " + mode_phrase + ".\n\n"
+                "Decision requirements:\n"
+                "1. Weigh all 9 researchers' arguments; identify consensus and disagreement.\n"
+                "2. You MUST fill the `synthesis` object: explain how each researcher's view influenced the call.\n"
+                "3. `consensus_score` should explicitly count how many lean bullish / bearish / neutral.\n"
+                "4. `thesis` must be 5-7 sentences with a complete reasoning chain.\n"
+                "5. `debate_summary` must walk through the strongest bull and bear arguments and explain who won.\n"
+                "6. `actionable_steps` must contain at least 3 concrete steps.\n"
+                "7. Do not sit on the fence — give a clear direction and concrete numbers.\n"
+                "8. All output values must be in English only."
+            )
             instruction = MANAGER_OUTPUT_INSTRUCTION_EN
+            lang_directive = "IMPORTANT: All output values must be in ENGLISH ONLY. Do not mix languages."
 
         user_prompt = (
             f"{context_block}\n\n"
-            f"## Researcher Briefings\n{digest}\n\n"
-            "Now make your final decision."
+            f"## Researcher Briefings (full)\n{digest}\n\n"
+            f"{lang_directive}\n\n"
+            "Now make your final decision. Remember: fill EVERY field of the schema, especially `synthesis` for all 9 researchers and `actionable_steps`."
         )
-        system_prompt = f"{role_intro}\n\n{instruction}"
+        system_prompt = f"{lang_directive}\n\n{role_intro}\n\n{instruction}"
 
         try:
             resp = await self.client.chat.completions.create(
@@ -483,7 +729,7 @@ class TraderAgentPipeline:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.3,
-                max_tokens=1000,
+                max_tokens=2200,  # raised: synthesis + actionable_steps + extended thesis
             )
             content = resp.choices[0].message.content or ""
             return self._parse_json(content)
@@ -495,6 +741,9 @@ class TraderAgentPipeline:
                 "debate_summary": "Pipeline error",
                 "key_catalysts": [],
                 "main_risks": [],
+                "synthesis": {},
+                "actionable_steps": [],
+                "consensus_score": "",
             }
 
     @staticmethod

@@ -189,75 +189,82 @@ export default function Home() {
         {/* Main column */}
         <main className="flex-1 min-w-0 overflow-y-auto">
           <div className="max-w-6xl mx-auto px-8 py-6 space-y-6">
-            {/* Top bar: ticker + status */}
-            <header className="flex items-center justify-between gap-6 anim-fade-up">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-[var(--text-2)] font-semibold">
-                  <span className="relative flex w-1.5 h-1.5">
-                    <span className="absolute inset-0 rounded-full bg-[var(--fin-up)] anim-data-pulse" />
-                    <span className="absolute inset-0 rounded-full bg-[var(--fin-up)]" />
-                  </span>
-                  {t(`nav.${view}` as "nav.dashboard", locale)}
+            {/* Top bar — split into title row + actions row to avoid overlap on narrow viewports.
+                The title gets dedicated vertical space; actions wrap below cleanly. */}
+            <header className="anim-fade-up space-y-3">
+              <div className="flex items-end justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-[var(--text-2)] font-semibold">
+                    <span className="relative flex w-1.5 h-1.5">
+                      <span className="absolute inset-0 rounded-full bg-[var(--fin-up)] anim-data-pulse" />
+                      <span className="absolute inset-0 rounded-full bg-[var(--fin-up)]" />
+                    </span>
+                    {t(`nav.${view}` as "nav.dashboard", locale)}
+                    {marketData && (
+                      <>
+                        <span className="text-[var(--line-mid)]">/</span>
+                        <span className="text-[var(--accent)] mono font-bold tracking-wider">
+                          {marketData.ticker}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <h1 className="text-2xl font-bold tracking-tight text-[var(--text-0)] mt-1">
+                    {view === "dashboard"  && (marketData ? marketData.ticker : t("nav.dashboard", locale))}
+                    {view === "watchlist"  && t("watchlist.title", locale)}
+                    {view === "news"       && t("news.title", locale)}
+                    {view === "strategies" && t("nav.strategies", locale)}
+                    {view === "trader"     && t("trader.title", locale)}
+                    {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
+                    {view === "scanner"    && (locale === "zh" ? "策略扫描器" : "Strategy Scanner")}
+                    {view === "alerts"     && (locale === "zh" ? "事件提醒" : "Event Alerts")}
+                  </h1>
+                </div>
+
+                {/* Action buttons — sit on the right of the title row when there's room,
+                    otherwise wrap below thanks to flex-wrap. */}
+                <div className="flex items-center gap-2 flex-wrap">
                   {marketData && (
-                    <>
-                      <span className="text-[var(--line-mid)]">/</span>
-                      <span className="text-[var(--accent)] mono font-bold tracking-wider">
-                        {marketData.ticker}
-                      </span>
-                    </>
+                    <button
+                      onClick={handleGoHome}
+                      className="h-9 px-3.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all shrink-0 cursor-pointer bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:-translate-y-px hover:shadow-sm"
+                    >
+                      <HomeIcon className="w-3.5 h-3.5" />
+                      {t("home.backToHome", locale)}
+                    </button>
+                  )}
+                  {view === "dashboard" && marketData && (
+                    <button
+                      onClick={toggleWatchlist}
+                      className={`h-9 px-3.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
+                        isInWatchlist
+                          ? "bg-[var(--fin-up-soft)] text-[var(--fin-up)] border border-[rgba(10,143,90,0.28)] hover:bg-[rgba(10,143,90,0.16)]"
+                          : "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white border border-[var(--accent)] hover:shadow-[var(--shadow-blue)] hover:-translate-y-px"
+                      }`}
+                      aria-pressed={isInWatchlist}
+                    >
+                      {isInWatchlist ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          {t("news.inWatchlist", locale)}
+                        </>
+                      ) : (
+                        <>
+                          <Star className="w-3.5 h-3.5" />
+                          {t("news.addToWatchlist", locale)}
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight text-[var(--text-0)] mt-1">
-                  {view === "dashboard"  && (marketData ? marketData.ticker : t("nav.dashboard", locale))}
-                  {view === "watchlist"  && t("watchlist.title", locale)}
-                  {view === "news"       && t("news.title", locale)}
-                  {view === "strategies" && t("nav.strategies", locale)}
-                  {view === "trader"     && t("trader.title", locale)}
-                  {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
-                  {view === "scanner"    && (locale === "zh" ? "策略扫描器" : "Strategy Scanner")}
-                  {view === "alerts"     && (locale === "zh" ? "事件提醒" : "Event Alerts")}
-                </h1>
               </div>
 
-              {/* Home button — visible whenever a ticker is loaded; click clears + returns to dashboard */}
-              {marketData && (
-                <button
-                  onClick={handleGoHome}
-                  title={t("home.backToHome", locale)}
-                  className="h-10 px-4 text-xs font-semibold rounded-full flex items-center gap-2 transition-all shrink-0 cursor-pointer bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:-translate-y-px hover:shadow-md"
-                >
-                  <HomeIcon className="w-3.5 h-3.5" />
-                  {t("home.backToHome", locale)}
-                </button>
-              )}
-
-              {/* Dashboard: Add-to-Watchlist */}
-              {view === "dashboard" && marketData && (
-                <button
-                  onClick={toggleWatchlist}
-                  className={`h-10 px-4 text-xs font-semibold rounded-full flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
-                    isInWatchlist
-                      ? "bg-[var(--fin-up-soft)] text-[var(--fin-up)] border border-[rgba(10,143,90,0.28)] hover:bg-[rgba(10,143,90,0.16)]"
-                      : "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white border border-[var(--accent)] hover:shadow-[var(--shadow-blue)] hover:-translate-y-px"
-                  }`}
-                  aria-pressed={isInWatchlist}
-                >
-                  {isInWatchlist ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      {t("news.inWatchlist", locale)}
-                    </>
-                  ) : (
-                    <>
-                      <Star className="w-3.5 h-3.5" />
-                      {t("news.addToWatchlist", locale)}
-                    </>
-                  )}
-                </button>
-              )}
-
+              {/* Search row — full-width on its own line so the input has breathing room
+                  and never collides with the title or action pills. */}
               {(view === "dashboard" || view === "strategies" || view === "trader") && (
-                <TickerSearch showChips={false} />
+                <div className="w-full max-w-xl">
+                  <TickerSearch showChips={false} />
+                </div>
               )}
             </header>
 

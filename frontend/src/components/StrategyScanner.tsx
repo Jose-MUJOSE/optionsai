@@ -55,10 +55,104 @@ const PRESETS: ScannerPreset[] = [
   "earnings_week",
 ];
 
-const DEFAULT_UNIVERSE = [
-  "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD",
-  "SPY", "QQQ", "IWM", "NFLX", "AVGO", "CRM", "BABA",
+// ---------- Universe categories ----------
+// Curated US-only baskets. Keeping each under ~30 tickers so a single scan
+// stays under the rate-limit budget for free Yahoo / Polygon endpoints.
+
+type CategoryKey =
+  | "watchlist"
+  | "mag7"
+  | "dow30"
+  | "sp50"
+  | "ndx_top"
+  | "etf_core"
+  | "semiconductors"
+  | "ai_software"
+  | "banks"
+  | "healthcare"
+  | "energy"
+  | "consumer"
+  | "ev_auto"
+  | "biotech"
+  | "china_adr"
+  | "custom";
+
+const CATEGORY_TICKERS: Record<Exclude<CategoryKey, "watchlist" | "custom">, string[]> = {
+  // The Magnificent Seven — most liquid tech mega-caps
+  mag7: ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
+  // Dow Jones Industrial Average components (curated subset)
+  dow30: [
+    "AAPL", "AMGN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
+    "GS", "HD", "HON", "IBM", "JNJ", "JPM", "KO", "MCD", "MMM",
+    "MRK", "MSFT", "NKE", "PG", "TRV", "UNH", "V", "VZ", "WBA", "WMT",
+  ],
+  // Top S&P 500 by weight
+  sp50: [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "BRK.B",
+    "AVGO", "TSLA", "JPM", "LLY", "V", "XOM", "MA", "UNH", "COST",
+    "WMT", "PG", "JNJ", "HD", "ABBV", "NFLX", "BAC", "CRM", "MRK",
+    "CVX", "ORCL", "AMD", "KO",
+  ],
+  // Nasdaq-100 top names
+  ndx_top: [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AVGO",
+    "COST", "NFLX", "PEP", "ADBE", "AMD", "CSCO", "TMUS", "CMCSA",
+    "QCOM", "INTU", "TXN", "AMGN", "ISRG", "BKNG", "GILD", "MU",
+  ],
+  // Major broad-market & sector ETFs
+  etf_core: ["SPY", "QQQ", "IWM", "DIA", "VTI", "XLK", "XLF", "XLE", "XLV", "XLY", "XLI", "GLD", "TLT", "ARKK"],
+  // Semiconductor leaders
+  semiconductors: ["NVDA", "AVGO", "AMD", "TSM", "QCOM", "INTC", "MU", "AMAT", "LRCX", "ASML", "KLAC", "MRVL", "ON", "ARM"],
+  // AI software & cloud
+  ai_software: ["MSFT", "GOOGL", "META", "ORCL", "CRM", "ADBE", "PLTR", "NOW", "SNOW", "DDOG", "MDB", "NET", "CRWD"],
+  // Big banks & financials
+  banks: ["JPM", "BAC", "WFC", "C", "GS", "MS", "BLK", "SCHW", "AXP", "USB", "PNC"],
+  // Healthcare & pharma
+  healthcare: ["UNH", "JNJ", "LLY", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD"],
+  // Energy
+  energy: ["XOM", "CVX", "COP", "OXY", "SLB", "EOG", "MPC", "PSX", "VLO"],
+  // Consumer staples + discretionary leaders
+  consumer: ["AMZN", "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "TGT", "LOW", "BKNG", "DIS"],
+  // EV & auto
+  ev_auto: ["TSLA", "F", "GM", "RIVN", "LCID", "NIO", "XPEV", "LI", "TM"],
+  // Biotech
+  biotech: ["AMGN", "GILD", "REGN", "VRTX", "BIIB", "MRNA", "ILMN", "INCY"],
+  // China ADRs (US-listed)
+  china_adr: ["BABA", "PDD", "JD", "NIO", "BIDU", "TME", "BILI", "TCOM"],
+};
+
+interface CategoryMeta {
+  zh: { label: string; desc: string };
+  en: { label: string; desc: string };
+}
+
+const CATEGORY_META: Record<CategoryKey, CategoryMeta> = {
+  watchlist:    { zh: { label: "我的自选", desc: "扫描自选列表" },           en: { label: "My Watchlist",     desc: "Scan your saved tickers" } },
+  mag7:         { zh: { label: "科技七雄", desc: "Magnificent 7 大科技" }, en: { label: "Magnificent 7",    desc: "Top 7 tech mega-caps" } },
+  dow30:        { zh: { label: "道指 30",  desc: "道琼斯工业指数成份" },    en: { label: "Dow 30",           desc: "Dow Jones constituents" } },
+  sp50:         { zh: { label: "标普 50",  desc: "S&P 500 头部权重股" },    en: { label: "S&P Top 50",       desc: "Top S&P 500 by weight" } },
+  ndx_top:      { zh: { label: "纳指领头", desc: "纳斯达克 100 主力" },     en: { label: "Nasdaq Top",       desc: "Nasdaq-100 leaders" } },
+  etf_core:     { zh: { label: "核心 ETF", desc: "宽基 + 行业 ETF" },        en: { label: "Core ETFs",        desc: "Broad + sector ETFs" } },
+  semiconductors:{ zh:{ label: "半导体",   desc: "AI / 芯片产业链" },        en: { label: "Semiconductors",   desc: "AI & chip supply chain" } },
+  ai_software:  { zh: { label: "AI 软件",  desc: "云 + AI 软件巨头" },       en: { label: "AI Software",      desc: "Cloud & AI leaders" } },
+  banks:        { zh: { label: "银行金融", desc: "大银行 + 投行" },          en: { label: "Banks",            desc: "Big banks & broker-dealers" } },
+  healthcare:   { zh: { label: "医疗健康", desc: "制药 + 医疗器械" },        en: { label: "Healthcare",       desc: "Pharma & med devices" } },
+  energy:       { zh: { label: "能源",     desc: "石油 + 能源服务" },        en: { label: "Energy",           desc: "Oil & energy services" } },
+  consumer:     { zh: { label: "消费",     desc: "必选 + 可选消费" },        en: { label: "Consumer",         desc: "Staples & discretionary" } },
+  ev_auto:      { zh: { label: "电车汽车", desc: "EV + 传统车企" },          en: { label: "EV & Auto",        desc: "EV + legacy automakers" } },
+  biotech:      { zh: { label: "生物技术", desc: "生物科技龙头" },           en: { label: "Biotech",          desc: "Top biotech names" } },
+  china_adr:    { zh: { label: "中概股",   desc: "美股上市中国公司" },       en: { label: "China ADRs",       desc: "US-listed Chinese companies" } },
+  custom:       { zh: { label: "自定义",   desc: "粘贴自己的 ticker" },      en: { label: "Custom",           desc: "Paste your own tickers" } },
+};
+
+// Order in the grid — popular categories first
+const CATEGORY_ORDER: CategoryKey[] = [
+  "watchlist", "mag7", "ndx_top", "sp50", "dow30", "etf_core",
+  "semiconductors", "ai_software", "banks", "healthcare",
+  "energy", "consumer", "ev_auto", "biotech", "china_adr", "custom",
 ];
+
+const DEFAULT_UNIVERSE = CATEGORY_TICKERS.mag7;
 
 export default function StrategyScanner() {
   const { locale, searchTicker } = useAppStore();
@@ -66,24 +160,31 @@ export default function StrategyScanner() {
   const lang: Locale = locale === "zh" ? "zh" : "en";
 
   const [preset, setPreset] = useState<ScannerPreset>("high_iv_rank");
+  const [category, setCategory] = useState<CategoryKey>("mag7");
   const [customTickers, setCustomTickers] = useState<string>("");
-  const [useWatchlistUniverse, setUseWatchlistUniverse] = useState<boolean>(true);
   const [response, setResponse] = useState<ScannerResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Resolve the active universe from the selected category.
+   * - "watchlist" → user's saved watchlist
+   * - "custom"    → comma/space-separated ticker list
+   * - everything else → CATEGORY_TICKERS[key]
+   */
   const universe = useMemo(() => {
-    if (customTickers.trim()) {
+    if (category === "watchlist") {
+      return watchlistItems.length > 0 ? watchlistItems.map((x) => x.ticker) : DEFAULT_UNIVERSE;
+    }
+    if (category === "custom") {
       return customTickers
         .split(/[,\s]+/)
         .map((x) => x.trim().toUpperCase())
-        .filter(Boolean);
+        .filter(Boolean)
+        .slice(0, 30);
     }
-    if (useWatchlistUniverse && watchlistItems.length > 0) {
-      return watchlistItems.map((x) => x.ticker);
-    }
-    return DEFAULT_UNIVERSE;
-  }, [customTickers, useWatchlistUniverse, watchlistItems]);
+    return CATEGORY_TICKERS[category];
+  }, [category, customTickers, watchlistItems]);
 
   const handleScan = useCallback(async () => {
     setLoading(true);
@@ -156,37 +257,71 @@ export default function StrategyScanner() {
 
         <div>
           <label className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-2)] font-semibold mb-2 block">
-            {lang === "zh" ? "扫描范围" : "Universe"}
+            {lang === "zh" ? "扫描板块" : "Scan category"}
           </label>
-          <div className="flex items-center gap-3 mb-2">
-            <label className="flex items-center gap-2 text-xs text-[var(--text-1)] cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useWatchlistUniverse}
-                onChange={(e) => setUseWatchlistUniverse(e.target.checked)}
-                className="cursor-pointer"
-              />
-              {lang === "zh"
-                ? `使用自选股 (${watchlistItems.length})`
-                : `Use watchlist (${watchlistItems.length})`}
-            </label>
-            <span className="text-[10px] text-[var(--text-2)]">
-              {lang === "zh"
-                ? "或粘贴自定义 ticker (空格/逗号分隔, 最多 30)"
-                : "or paste custom tickers (comma/space separated, max 30)"}
-            </span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {CATEGORY_ORDER.map((key) => {
+              const meta = CATEGORY_META[key][lang];
+              const active = category === key;
+              const count =
+                key === "watchlist"
+                  ? watchlistItems.length
+                  : key === "custom"
+                  ? customTickers.split(/[,\s]+/).filter(Boolean).length
+                  : CATEGORY_TICKERS[key].length;
+              const disabled = key === "watchlist" && watchlistItems.length === 0;
+              return (
+                <button
+                  key={key}
+                  onClick={() => !disabled && setCategory(key)}
+                  disabled={disabled}
+                  className={`text-left rounded-lg border px-2.5 py-2 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                    active
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-[var(--shadow-blue)]"
+                      : "border-[var(--line-soft)] hover:bg-[var(--bg-2)] hover:border-[var(--accent)]/30"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className={`text-[12px] font-bold ${active ? "text-[var(--accent-hot)]" : "text-[var(--text-0)]"} truncate`}>
+                      {meta.label}
+                    </span>
+                    {count > 0 && key !== "custom" && (
+                      <span
+                        className={`text-[9px] font-bold mono px-1.5 py-0.5 rounded-full shrink-0 ${
+                          active
+                            ? "bg-[var(--accent)] text-white"
+                            : "bg-[var(--bg-2)] text-[var(--text-2)]"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-2)] mt-0.5 truncate">{meta.desc}</div>
+                </button>
+              );
+            })}
           </div>
-          <input
-            value={customTickers}
-            onChange={(e) => setCustomTickers(e.target.value)}
-            placeholder="AAPL, NVDA, TSLA..."
-            className="w-full px-3 py-2 text-sm border border-[var(--line-soft)] rounded-lg bg-[var(--bg-2)] focus:outline-none focus:border-[var(--accent)] mono"
-          />
-          <div className="text-[10px] text-[var(--text-2)] mt-1.5">
-            {lang === "zh" ? "即将扫描" : "Will scan"}:{" "}
-            <span className="mono font-semibold text-[var(--text-1)]">
-              {universe.slice(0, 10).join(", ")}
-              {universe.length > 10 ? ` … (+${universe.length - 10})` : ""}
+
+          {/* Custom ticker input — only shown when "custom" category is selected */}
+          {category === "custom" && (
+            <div className="mt-3 anim-fade-up">
+              <input
+                value={customTickers}
+                onChange={(e) => setCustomTickers(e.target.value)}
+                placeholder={lang === "zh" ? "粘贴 ticker (空格/逗号分隔, 最多 30)" : "AAPL, NVDA, TSLA... (max 30)"}
+                className="w-full px-3 py-2 text-sm border border-[var(--line-soft)] rounded-lg bg-[var(--bg-2)] focus:outline-none focus:border-[var(--accent)] mono"
+              />
+            </div>
+          )}
+
+          {/* Resolved universe preview */}
+          <div className="text-[10px] text-[var(--text-2)] mt-2.5 leading-relaxed">
+            {lang === "zh" ? "即将扫描" : "Will scan"}{" "}
+            <span className="font-semibold text-[var(--text-1)]">({universe.length})</span>
+            : <span className="mono font-semibold text-[var(--text-1)]">
+              {universe.slice(0, 12).join(", ")}
+              {universe.length > 12 ? ` … (+${universe.length - 12})` : ""}
             </span>
           </div>
         </div>

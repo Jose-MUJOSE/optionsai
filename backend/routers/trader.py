@@ -196,10 +196,42 @@ def _build_word_report(req: TraderReportRequest) -> bytes:
         for r in risks:
             doc.add_paragraph(str(r), style="List Bullet")
 
+    actionable = m.get("actionable_steps", []) or []
+    if actionable:
+        heading("具体执行步骤" if is_zh else "Actionable Steps", level=2)
+        for i, step in enumerate(actionable, 1):
+            doc.add_paragraph(f"{i}. {step}")
+
+    consensus = m.get("consensus_score")
+    if consensus:
+        heading("共识打分" if is_zh else "Consensus Score", level=2)
+        para(str(consensus))
+
     debate = m.get("debate_summary")
     if debate:
         heading("辩论总结" if is_zh else "Debate Summary", level=2)
         para(str(debate))
+
+    synthesis = m.get("synthesis", {}) or {}
+    if synthesis:
+        heading("研究员综合权衡" if is_zh else "Per-Researcher Synthesis", level=2)
+        # Canonical order so the section is consistent across reports
+        order = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"]
+        name_map_zh = {
+            "bull": "看多研究员", "bear": "看空研究员", "technical": "技术面研究员",
+            "fundamental": "基本面研究员", "market": "市场研究员", "industry": "行业研究员",
+            "financial": "财务研究员", "news": "新闻事件研究员", "options": "期权研究员",
+        }
+        name_map_en = {
+            "bull": "Bull", "bear": "Bear", "technical": "Technical",
+            "fundamental": "Fundamental", "market": "Market", "industry": "Industry",
+            "financial": "Financial", "news": "News & Events", "options": "Options",
+        }
+        for key in order:
+            text = synthesis.get(key)
+            if text:
+                label = name_map_zh[key] if is_zh else name_map_en[key]
+                label_value(label, str(text))
 
     # === Researcher Briefings ===
     doc.add_page_break()

@@ -90,34 +90,38 @@ export default function GEXPanel() {
   }
 
   const netSign = gexData.net_gex_millions >= 0 ? "positive" : "negative";
-  const regimeLabel =
-    netSign === "positive"
-      ? lang === "zh"
-        ? "正 Gamma 机制 · 波动压缩"
-        : "Positive Gamma · Vol-compressing"
-      : lang === "zh"
-        ? "负 Gamma 机制 · 波动放大"
-        : "Negative Gamma · Vol-amplifying";
+  // Two-line regime: short label + sub-label, so the stat card never wraps awkwardly
+  const regimeLabel = netSign === "positive"
+    ? (lang === "zh" ? "正 Gamma" : "Positive")
+    : (lang === "zh" ? "负 Gamma" : "Negative");
+  const regimeSubLabel = netSign === "positive"
+    ? (lang === "zh" ? "波动压缩" : "Vol compression")
+    : (lang === "zh" ? "波动放大" : "Vol amplification");
   const regimeColor =
     netSign === "positive" ? "text-[var(--fin-up)]" : "text-[var(--fin-down)]";
+  const regimeBg = netSign === "positive"
+    ? "bg-emerald-50 border-emerald-200"
+    : "bg-red-50 border-red-200";
 
   return (
     <div className="bg-white border border-[var(--line-soft)] rounded-2xl p-5 shadow-sm anim-fade-up">
       <HeaderRow locale={locale} expiration={selectedExpiration} />
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      {/* Summary stats — uniform min-height prevents the regime card from breaking the row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <StatCard
           label={lang === "zh" ? "总 NET GEX" : "Total Net GEX"}
           value={formatMillions(gexData.net_gex_millions)}
-          hint={lang === "zh" ? "单位: 百万美元 / 1%" : "Units: $M per 1% move"}
+          hint={lang === "zh" ? "百万美元 / 1% 移动" : "$M per 1% move"}
           valueClass={regimeColor}
         />
-        <StatCard
-          label={lang === "zh" ? "机制" : "Regime"}
-          value={regimeLabel}
-          valueClass={regimeColor}
-        />
+        <div className={`rounded-xl px-3 py-2.5 border ${regimeBg} min-h-[88px] flex flex-col justify-center`}>
+          <div className="text-[10px] uppercase tracking-widest text-[var(--text-2)]">
+            {lang === "zh" ? "机制" : "Regime"}
+          </div>
+          <div className={`text-base font-bold mt-1 leading-tight ${regimeColor}`}>{regimeLabel}</div>
+          <div className={`text-[11px] font-medium mt-0.5 ${regimeColor} opacity-80`}>{regimeSubLabel}</div>
+        </div>
         <StatCard
           label={lang === "zh" ? "Gamma 翻转位" : "Gamma Flip"}
           value={
@@ -136,16 +140,16 @@ export default function GEXPanel() {
           value={`${formatMillions(gexData.call_gex_millions)} / ${formatMillions(
             gexData.put_gex_millions,
           )}`}
-          hint={lang === "zh" ? "正=看涨持仓, 负=看跌持仓" : "Positive=calls, Negative=puts"}
+          hint={lang === "zh" ? "正=看涨, 负=看跌" : "Positive=calls, Negative=puts"}
         />
       </div>
 
-      {/* Chart */}
-      <div className="h-72">
+      {/* Chart — extra top padding so reference-line labels don't get clipped */}
+      <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
-            margin={{ top: 8, right: 10, left: 0, bottom: 18 }}
+            margin={{ top: 28, right: 18, left: 4, bottom: 18 }}
             barCategoryGap="6%"
           >
             <CartesianGrid strokeDasharray="3 3" stroke="var(--line-soft)" />
@@ -167,9 +171,11 @@ export default function GEXPanel() {
                 strokeDasharray="3 3"
                 label={{
                   value: lang === "zh" ? "现价" : "Spot",
-                  position: "top",
+                  position: "insideTopRight",
                   fill: "var(--accent)",
-                  fontSize: 10,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  offset: 8,
                 }}
               />
             )}
@@ -179,10 +185,12 @@ export default function GEXPanel() {
                 stroke="var(--accent-violet)"
                 strokeDasharray="4 2"
                 label={{
-                  value: lang === "zh" ? "Gamma 翻转" : "Flip",
-                  position: "insideTop",
+                  value: lang === "zh" ? "翻转" : "Flip",
+                  position: "insideTopLeft",
                   fill: "var(--accent-violet)",
-                  fontSize: 10,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  offset: 8,
                 }}
               />
             )}
@@ -307,18 +315,18 @@ function StatCard({
   valueClass?: string;
 }) {
   return (
-    <div className="bg-[var(--bg-2)] border border-[var(--line-soft)] rounded-xl px-3 py-2.5">
+    <div className="bg-[var(--bg-2)] border border-[var(--line-soft)] rounded-xl px-3 py-2.5 min-h-[88px] flex flex-col justify-center">
       <div className="text-[10px] uppercase tracking-widest text-[var(--text-2)]">
         {label}
       </div>
       <div
-        className={`text-base font-semibold mt-1 tabular tracking-tight ${
+        className={`text-base font-semibold mt-1 tabular tracking-tight leading-tight ${
           valueClass ?? "text-[var(--text-0)]"
         }`}
       >
         {value}
       </div>
-      {hint && <div className="text-[10px] text-[var(--text-2)] mt-0.5">{hint}</div>}
+      {hint && <div className="text-[10px] text-[var(--text-2)] mt-0.5 leading-tight">{hint}</div>}
     </div>
   );
 }

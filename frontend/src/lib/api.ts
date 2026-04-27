@@ -666,6 +666,19 @@ export interface ResearcherResult {
   risks: string;
 }
 
+/** Per-researcher synthesis written by the PM. Keys mirror researcher IDs. */
+export interface ManagerSynthesis {
+  bull?: string;
+  bear?: string;
+  technical?: string;
+  fundamental?: string;
+  market?: string;
+  industry?: string;
+  financial?: string;
+  news?: string;
+  options?: string;
+}
+
 export interface ManagerStockDecision {
   decision: "buy" | "hold" | "sell" | string;
   conviction: number;
@@ -678,6 +691,9 @@ export interface ManagerStockDecision {
   key_catalysts?: string[];
   main_risks?: string[];
   debate_summary?: string;
+  synthesis?: ManagerSynthesis;
+  consensus_score?: string;
+  actionable_steps?: string[];
 }
 
 export interface ManagerOptionsDecision {
@@ -694,6 +710,9 @@ export interface ManagerOptionsDecision {
   key_catalysts?: string[];
   main_risks?: string[];
   debate_summary?: string;
+  synthesis?: ManagerSynthesis;
+  consensus_score?: string;
+  actionable_steps?: string[];
 }
 
 export type ManagerDecision = ManagerStockDecision | ManagerOptionsDecision;
