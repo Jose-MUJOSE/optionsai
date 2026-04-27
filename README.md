@@ -17,12 +17,12 @@
 
 <br/>
 
-**AI-powered options strategy assistant for retail investors.**  
-Real market data · Multi-agent analysis pipeline · Beginner-friendly Greek explanations · Bilingual UI
+**A multi-agent AI options strategy platform for retail investors.**  
+9 specialist researchers · Portfolio-Manager debate · Real US-market data · Beginner-friendly explanations · Bilingual UI
 
 <br/>
 
-[**🚀 Quick Start**](#-quick-start) · [**✨ Features**](#-features) · [**🏗 Architecture**](#-architecture) · [**📡 API**](#-api-reference) · [**🗺 Roadmap**](#-roadmap)
+[**🚀 Quick Start**](#-quick-start) · [**🤖 Trader Agent**](#-professional-trader-agent-v2-marquee-feature) · [**✨ Features**](#-features) · [**🏗 Architecture**](#-architecture) · [**📡 API**](#-api-reference)
 
 </div>
 
@@ -30,9 +30,59 @@ Real market data · Multi-agent analysis pipeline · Beginner-friendly Greek exp
 
 ## 📌 What is OptionsAI?
 
-OptionsAI is a full-stack web platform that bridges the gap between raw options data and actionable decisions for **beginner retail investors**. Instead of staring at a wall of Greeks and IV numbers, users get a step-by-step AI analysis that explains *why* a particular strategy makes sense, *what* the max loss is, and *where* the break-even point sits — all in plain language.
+OptionsAI is a full-stack web platform that bridges the gap between raw options data and actionable decisions for **beginner retail investors** in the **US market**. Instead of staring at a wall of Greeks and IV numbers, users get a step-by-step AI analysis from **9 specialist researchers** plus a **Portfolio Manager** that explains *why* a particular strategy makes sense, *what* the max loss is, and *where* the break-even point sits — all in plain language.
 
-> **Scope:** OptionsAI provides analysis and educational recommendations only. It does **not** execute trades, manage real portfolios, or constitute financial advice.
+> **Scope:** OptionsAI provides **analysis and educational recommendations only**. It does **not** execute trades, manage real portfolios, or constitute financial advice.  
+> **Market:** US-listed stocks and ETFs only (A-shares, HK shares, forex, futures, crypto and indices are intentionally rejected with clear bilingual error messages).
+
+---
+
+## 🤖 Professional Trader Agent (v2 — Marquee Feature)
+
+<img src="docs/images/trader-agent.svg" alt="Trader Agent" width="100%"/>
+
+<br/>
+
+The Trader Agent runs a **9-researcher debate** in parallel, then a **Portfolio Manager** synthesizes a final decision. The PM's output explicitly shows *how each researcher's voice was weighed*, so the user understands the full reasoning chain — not just the verdict.
+
+### The 9 Researchers
+
+| # | Researcher | What they look at |
+|---|----------|-------------------|
+| 1 | 📈 **Bull** | Strongest possible case for buying — catalysts, margin expansion, market share, valuation re-rating |
+| 2 | 📉 **Bear** | Strongest possible case against — competitive pressure, margin compression, regulatory risk |
+| 3 | 📊 **Technical** | Trend direction, MA stack, support/resistance, momentum, volume confirmation |
+| 4 | 💼 **Fundamental** | Revenue growth, profitability, valuation vs peers, balance-sheet strength, FCF |
+| 5 | 🌐 **Market** | Sector rotation, risk-on/risk-off regime, rates, VIX, USD direction |
+| 6 | 🏭 **Industry** | TAM growth, competitive landscape, technological disruption, regulatory backdrop |
+| 7 | 🧮 **Financial** | Earnings quality, ROIC, debt levels, working-capital efficiency, accounting red flags |
+| 8 | 📰 **News & Events** | Recent headlines, earnings, product launches, insider transactions, 30-day catalyst |
+| 9 | 🎯 **Options** *(NEW)* | IV regime, IV Rank/Percentile, ATM Greeks, GEX dealer positioning, term structure |
+
+### What the Portfolio Manager produces
+
+The PM doesn't just hand you a single line. It produces a structured decision card:
+
+- **Decision badge** — `BUY` / `SELL` / `HOLD` (stock mode) or strategy name (options mode), plus conviction `1-10`
+- **Consensus score** — explicit count: *"6 of 9 bullish, 2 bearish, 1 neutral"*
+- **Investment thesis** — 5-7 sentences with the full reasoning chain
+- **Stock mode stats** — entry zone, target price, stop loss, time horizon, position sizing
+- **Options mode stats** — direction, exact structure (legs + premiums), expiration, max loss/profit, breakeven, win probability
+- **Key catalysts + main risks** — 3 of each
+- **Per-researcher synthesis** — 1-2 sentences on how each of the 9 voices influenced the call
+- **Actionable steps** — 3+ concrete steps to execute or wait for
+- **Debate summary** — 3-4 sentences walking through the strongest bull and bear arguments
+
+### Persistence and history
+
+- **Background-safe streaming** — switching to other panels mid-analysis no longer cancels the SSE stream (state lives in Zustand, not local component state)
+- **Auto-save to localStorage** — every completed analysis is saved with timestamp + ticker + decision badge (up to 30 entries)
+- **History panel** — view, re-load, or delete past analyses without re-running them
+- **Word .docx download** — export the full report (manager decision + all 9 briefings + per-researcher synthesis + actionable steps)
+
+### Strict bilingual output
+
+All researcher and PM prompts inject a **triple-redundant language directive** at system + user level so output never mixes Chinese and English. JSON schema fields are explicitly annotated `<...，中文>` or `<..., ENGLISH>` to prevent partial drift.
 
 ---
 
@@ -91,20 +141,34 @@ Automatically selects the best strategy (bull call spread, iron condor, straddle
 <tr>
 <td width="50%">
 
-**📷 Multimodal Chart Vision**  
-Paste or drag-drop a chart screenshot directly into the AI chat. The AI analyzes the image alongside live market data. Requires a vision-capable LLM (GPT-4o, Claude 3.5, etc.).
+**🎯 Strategy Scanner with 16 categories**  
+Pre-built ticker universes: Magnificent 7, Dow 30, S&P Top 50, Nasdaq Top, Core ETFs, Semiconductors, AI Software, Banks, Healthcare, Energy, Consumer, EV & Auto, Biotech, China ADRs, your Watchlist, or Custom. Avoids scanning 500+ tickers at once.
 
 </td>
 <td width="50%">
 
-**🌍 Bilingual UI**  
-Full English / 中文 toggle. Every label, explanation, tooltip, and AI response is available in both languages with a single click — no page reload.
+**📷 Multimodal Chart Vision**  
+Paste or drag-drop a chart screenshot directly into the AI chat. The AI analyzes the image alongside live market data. Requires a vision-capable LLM (GPT-4o, Claude 3.5, etc.).
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**📈 Dealer Gamma Exposure (GEX)**  
+Strike-level GEX bar chart with positive/negative regime detection, Gamma Flip Strike, dealer-positioning color coding, and a built-in "how to read" guide. Helps spot vol-compressing vs vol-amplifying environments.
+
+</td>
+<td width="50%">
+
+**🌍 Strict bilingual UI**  
+Full English / 中文 toggle. Every label, explanation, tooltip, and AI response is available in both languages. Triple-redundant locale enforcement on every LLM call to prevent mixed output.
 
 </td>
 </tr>
 </table>
 
-**Plus:** GEX panel · Earnings move history · Unusual options flow · Strategy scanner · Watchlist · Paper portfolio · Event alerts
+**Plus:** Earnings move history · Unusual options flow · Watchlist · Paper portfolio · Event alerts · US-only ticker validation with bilingual rejection messages · Click-logo-to-go-home navigation
 
 ---
 
@@ -116,15 +180,18 @@ Full English / 中文 toggle. Every label, explanation, tooltip, and AI response
 
 ```mermaid
 flowchart LR
-    U(["👤 User"]) --> FE["Next.js 16\nReact 19 · Zustand"]
-    FE -- "HTTP / SSE" --> API["FastAPI\nPython 3.12"]
-    API --> ORC["Agent\nOrchestrator"]
-    API --> SE["Strategy\nEngine (BSM)"]
-    API --> DF["Data\nFetcher"]
-    ORC --> LLM["LLM\nDeepSeek / GPT-4o"]
-    DF --> YF[("Yahoo Finance\nREST API")]
-    DF --> PG[("Polygon.io\nbackup")]
-    DF --> FR[("FINRA RegSHO\nshort volume")]
+    U(["👤 User"]) --> FE["Next.js 16<br/>React 19 · Zustand"]
+    FE -- "HTTP / SSE" --> API["FastAPI<br/>Python 3.12"]
+    API --> TA["Trader Agent<br/>9 Researchers + PM"]
+    API --> ORC["Multi-Agent<br/>Chat Pipeline"]
+    API --> SE["Strategy<br/>Engine (BSM)"]
+    API --> DF["Data<br/>Fetcher"]
+    TA --> LLM["LLM<br/>DeepSeek / GPT-4o"]
+    ORC --> LLM
+    DF --> YF[("Yahoo Finance<br/>REST API")]
+    DF --> PG[("Polygon.io<br/>backup")]
+    DF --> FR[("FINRA RegSHO<br/>short volume")]
+    FE -. "saved to" .-> LS[("localStorage<br/>analysis history")]
 ```
 
 ---
@@ -135,14 +202,15 @@ flowchart LR
 <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
 <tr><td>Frontend</td><td><a href="https://nextjs.org">Next.js 16</a> + <a href="https://react.dev">React 19</a></td><td>App shell, routing, SSR</td></tr>
 <tr><td>Styling</td><td><a href="https://tailwindcss.com">Tailwind CSS 4</a></td><td>Utility-first styling</td></tr>
-<tr><td>State</td><td><a href="https://zustand-demo.pmnd.rs">Zustand 5</a></td><td>Global client state + SSE</td></tr>
+<tr><td>State</td><td><a href="https://zustand-demo.pmnd.rs">Zustand 5</a></td><td>Global client state — keeps Trader Agent running across views</td></tr>
 <tr><td>Charts</td><td><a href="https://tradingview.github.io/lightweight-charts/">lightweight-charts 5</a></td><td>Candlestick / OHLCV</td></tr>
-<tr><td>Data viz</td><td><a href="https://recharts.org">Recharts 3</a></td><td>Payoff, IV, volume charts</td></tr>
+<tr><td>Data viz</td><td><a href="https://recharts.org">Recharts 3</a></td><td>Payoff, IV, GEX, volume charts</td></tr>
 <tr><td>Backend</td><td><a href="https://fastapi.tiangolo.com">FastAPI</a> + <a href="https://www.uvicorn.org">Uvicorn</a></td><td>REST API + SSE streaming</td></tr>
-<tr><td>HTTP client</td><td><a href="https://www.python-httpx.org">httpx</a> (async)</td><td>Requests to data APIs</td></tr>
-<tr><td>Numerical</td><td><a href="https://numpy.org">NumPy</a> + <a href="https://scipy.org">SciPy</a> + <a href="https://pandas.pydata.org">pandas</a></td><td>BSM pricing, statistics</td></tr>
-<tr><td>LLM</td><td>OpenAI-compatible API</td><td>DeepSeek / GPT-4o / any</td></tr>
-<tr><td>Market data</td><td>Yahoo Finance REST + Polygon.io</td><td>Prices, options, IV</td></tr>
+<tr><td>HTTP client</td><td><a href="https://www.python-httpx.org">httpx</a> (async)</td><td>Concurrent requests to data APIs</td></tr>
+<tr><td>Numerical</td><td><a href="https://numpy.org">NumPy</a> + <a href="https://scipy.org">SciPy</a> + <a href="https://pandas.pydata.org">pandas</a></td><td>BSM pricing, statistics, backtest</td></tr>
+<tr><td>LLM</td><td>OpenAI-compatible API</td><td>DeepSeek / GPT-4o / Claude / any</td></tr>
+<tr><td>Word reports</td><td><a href="https://python-docx.readthedocs.io">python-docx</a></td><td>Trader Agent .docx exports</td></tr>
+<tr><td>Market data</td><td>Yahoo Finance REST + Polygon.io</td><td>Prices, options, IV, news, fundamentals</td></tr>
 <tr><td>Short data</td><td>FINRA RegSHO daily files</td><td>Real daily short volume</td></tr>
 </table>
 
@@ -195,7 +263,12 @@ venv/Scripts/python.exe -m uvicorn backend.main:app --reload --port 8000
 cd frontend && npm run dev
 ```
 
-Open **[http://localhost:3000](http://localhost:3000)**, search a ticker like `AAPL`, and explore.
+Open **[http://localhost:3000](http://localhost:3000)**, search a US ticker like `AAPL`, then:
+
+1. **Dashboard** view — see candlestick, IV term structure, options chain, GEX, etc.
+2. **Trader Agent** view — pick *Stock* or *Options* mode, hit **Run Analysis**, watch the 9 researchers fill in
+3. **Strategies** view — generate ranked strategy recommendations + payoff chart + backtest
+4. **Scanner** view — pick a category (Mag7, Semiconductors, ETFs, etc.) and a preset (high IV rank, bullish flow, earnings week)
 
 > **Windows shortcut:** double-click `start.bat` to start both servers at once.
 
@@ -219,22 +292,38 @@ You can also swap LLM providers at runtime via the **⚙️ Settings** panel in 
 
 All endpoints are prefixed with `/api`. Interactive Swagger docs: **[http://localhost:8000/docs](http://localhost:8000/docs)**
 
+### Market data
+
 | Method | Endpoint | Description |
 |:------:|----------|-------------|
+| `GET` | `/api/market-data/{ticker}` | Full market data (rejects non-US tickers with HTTP 422 + bilingual error) |
 | `GET` | `/api/ohlcv/{ticker}` | OHLCV bars for candlestick chart |
 | `GET` | `/api/iv-term-structure/{ticker}` | IV curve across all expirations |
 | `GET` | `/api/options-snapshot/{ticker}` | ATM Greeks snapshot |
 | `GET` | `/api/expirations/{ticker}` | Available expiration dates |
-| `GET` | `/api/short-data/{ticker}` | Short interest + FINRA daily short volume |
-| `GET` | `/api/gex/{ticker}` | Gamma exposure by strike |
+| `GET` | `/api/short-data/{ticker}` | FINRA daily short volume + Yahoo short interest |
+| `GET` | `/api/gex/{ticker}` | Dealer gamma exposure by strike |
 | `GET` | `/api/earnings-moves/{ticker}` | Historical earnings move magnitudes |
 | `GET` | `/api/unusual-flow/{ticker}` | Unusual options activity |
+
+### Strategies & analysis
+
+| Method | Endpoint | Description |
+|:------:|----------|-------------|
 | `POST` | `/api/strategies` | Generate ranked strategy recommendations |
 | `POST` | `/api/backtest/{ticker}` | Walk-forward strategy backtest |
 | `POST` | `/api/scanner` | Multi-ticker opportunity scanner |
-| `POST` | `/api/chat/stream` | Multi-agent AI chat **(SSE)** |
 | `POST` | `/api/forecast/{ticker}` | AI price forecast |
 | `POST` | `/api/market-intel/{ticker}` | News + analyst sentiment summary |
+
+### AI agents
+
+| Method | Endpoint | Description |
+|:------:|----------|-------------|
+| `POST` | `/api/chat/stream` | Multi-agent AI chat **(SSE)** |
+| `POST` | `/api/trader/analyze/{ticker}` | **Trader Agent v2** — 9 researchers + PM **(SSE)** |
+| `POST` | `/api/trader/report` | Download Word .docx of a completed Trader Agent analysis |
+| `GET`  | `/api/trader/researchers` | List the 9 researcher metadata (icons, colors, names) |
 
 ---
 
@@ -251,20 +340,27 @@ optionsai/
 │   │   ├── market_data.py          # All market data endpoints
 │   │   ├── chat.py                 # AI chat + SSE streaming
 │   │   ├── strategies.py           # Strategy generation
-│   │   └── forecast.py             # Forecast + market intel
+│   │   ├── forecast.py             # Forecast + market intel
+│   │   └── trader.py               # ★ Trader Agent + Word report
 │   └── services/
 │       ├── data_fetcher.py         # Yahoo Finance + Polygon.io client
 │       ├── ai_assistant.py         # LLM integration + vision support
-│       ├── agent_orchestrator.py   # Multi-agent pipeline
+│       ├── agent_orchestrator.py   # 3-stage Multi-Agent chat pipeline
+│       ├── trader_agent.py         # ★ 9 researchers + PM debate
+│       ├── ticker_validator.py     # ★ US-only validation with bilingual errors
 │       ├── strategy_engine.py      # Strategy selection logic
 │       ├── strategy_selector.py    # Ranking and filtering
 │       └── backtest_engine.py      # BSM walk-forward backtest
 ├── frontend/
 │   └── src/
 │       ├── app/page.tsx            # Main page layout
-│       ├── components/             # 29 UI components
+│       ├── components/             # 30 UI components
+│       │   ├── TraderAgent.tsx     # ★ 9-researcher grid + PM card + history
+│       │   ├── GEXPanel.tsx        # Gamma exposure (UI polished)
+│       │   ├── StrategyScanner.tsx # 16-category scanner
+│       │   └── ...
 │       ├── lib/
-│       │   ├── store.ts            # Zustand global state
+│       │   ├── store.ts            # Zustand store (with traderHistory persistence)
 │       │   ├── api.ts              # API client functions
 │       │   ├── i18n.ts             # EN / 中文 translations
 │       │   └── imageUpload.ts      # Canvas-based image resize
@@ -289,6 +385,9 @@ All data is fetched from real public sources. No mock data or fabricated numbers
 | Short interest | Yahoo Finance `defaultKeyStatistics` | Bi-weekly | FINRA reporting cycle |
 | Chip distribution | VWAP-weighted estimate from OHLCV | Calculated | ⚠️ Estimation, not real broker data |
 | Institutional ownership | Yahoo Finance `institutionOwnership` (13F) | Quarterly | SEC filings |
+| Trader Agent context | All of the above + ATM Greeks + GEX | Real-time | Per-analysis snapshot |
+
+> **Why US-only?** A-shares (`.SS` / `.SZ`) and HK shares (`.HK`) have no individual stock options — only ETF and index options. Forex (`=X`), futures (`=F`), crypto pairs (`-USD`) and raw indices (`^...`) similarly have no retail-accessible options chains we can analyze. The platform rejects these with HTTP 422 and a clear bilingual message suggesting the corresponding ETF or US ticker.
 
 ---
 
@@ -297,23 +396,32 @@ All data is fetched from real public sources. No mock data or fabricated numbers
 ### Done ✅
 - [x] Candlestick chart with MA overlays and trend-line drawing
 - [x] Full options chain — Greeks view + Probability view
-- [x] Multi-agent AI pipeline — Researcher → Analyst → Verifier
+- [x] Multi-agent AI Chat pipeline — Researcher → Analyst → Verifier
+- [x] **Trader Agent v2 — 9 specialist researchers + Portfolio Manager**
+- [x] **Per-researcher synthesis + actionable steps + consensus score**
+- [x] **Background-safe analysis (Zustand store)** — survives view switches
+- [x] **Saved analysis history** — auto-persisted to localStorage
+- [x] **Word .docx report download** — full Trader Agent export
 - [x] IV term structure and IV rank / percentile history
 - [x] Short interest + FINRA daily short volume panel
 - [x] Strategy backtest with BSM walk-forward simulation
-- [x] GEX (Gamma Exposure) by strike
+- [x] GEX (Gamma Exposure) by strike with regime detection
 - [x] Earnings historical move analysis
 - [x] Unusual options flow detection
+- [x] **Strategy scanner with 16 curated categories**
 - [x] Paper portfolio tracker + Watchlist
-- [x] Bilingual UI — English / 中文
+- [x] Bilingual UI — English / 中文 with strict locale enforcement
 - [x] Multimodal chart image input to AI chat
+- [x] **US-only ticker validation** with bilingual rejection messages
+- [x] Click-logo home navigation
 
 ### Planned 🔜
 - [ ] One-click deploy (Vercel + Railway)
 - [ ] WebSocket real-time price updates
 - [ ] Portfolio Greeks aggregation dashboard
-- [ ] Strategy scanner with custom filters
+- [ ] Custom researcher-team builder (pick which of the 9 to run)
 - [ ] Mobile-responsive layout
+- [ ] PDF export alternative for Trader reports
 
 ---
 
@@ -345,7 +453,7 @@ git push origin feat/your-feature
 
 <div align="center">
 
-**Built with ❤️ using FastAPI · Next.js · DeepSeek · Yahoo Finance**
+**Built with ❤️ using FastAPI · Next.js · DeepSeek · Yahoo Finance · python-docx**
 
 If this project helped you, consider giving it a ⭐
 
