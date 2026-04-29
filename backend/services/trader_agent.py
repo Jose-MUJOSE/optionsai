@@ -20,6 +20,17 @@ import asyncio
 from typing import AsyncGenerator, Literal, Optional
 
 from backend.services.data_fetcher import DataFetcher
+from backend.services.researcher_context import (
+    compute_technical_indicators,
+    fetch_fundamental_metrics,
+    fetch_market_context,
+    fetch_sector_etf_context,
+    format_technical_block,
+    format_fundamental_block,
+    format_financial_block,
+    format_market_block,
+    format_industry_block,
+)
 
 
 AnalysisMode = Literal["stock", "options"]
@@ -394,10 +405,14 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
     """
     Gather all data needed by every researcher in parallel.
 
-    Includes options-specific data (snapshot + GEX) for the Options Researcher
-    when an expiration is resolvable. Failures on any single fetch are isolated
-    via gather(..., return_exceptions=True) so the pipeline never tanks
-    because one provider is rate-limited.
+    Beyond the original base context (market data, HV, news, analyst,
+    options snapshot, GEX), this now also fetches:
+      - Full OHLCV (1Y) so we can compute technical indicators
+      - Fundamental metrics from Yahoo quoteSummary
+      - Macro context (SPY/QQQ/VIX/TNX/TLT)
+      - Sector ETF context for Industry researcher
+
+    Each researcher gets a SPECIALIZED slice via format_researcher_context().
     """
     # First, fetch the core market data — we need its expiration list to
     # decide which options snapshot to fetch.
@@ -425,7 +440,7 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
         else:
             target_exp = expirations[0]
 
-    # Now fetch everything else in parallel
+    # Build the parallel-fetch task list. None entries are skipped.
     options_snapshot_task = (
         fetcher.get_options_snapshot(ticker, target_exp) if target_exp else None
     )
@@ -433,10 +448,14 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
         fetcher.get_gamma_exposure(ticker, target_exp) if target_exp and hasattr(fetcher, "get_gamma_exposure") else None
     )
 
-    tasks = [
+    tasks: list = [
         fetcher.get_historical_volatility(ticker),
         fetcher.get_news(ticker, limit=8),
         fetcher.get_analyst_data(ticker),
+        fetcher.get_ohlcv(ticker, "1y", "1d"),    # for technical indicators
+        fetch_fundamental_metrics(fetcher, ticker),
+        fetch_market_context(fetcher),
+        fetch_sector_etf_context(fetcher, ticker),
     ]
     if options_snapshot_task is not None:
         tasks.append(options_snapshot_task)
@@ -445,27 +464,44 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    hv = results[0] if not isinstance(results[0], Exception) else {}
-    news = results[1] if not isinstance(results[1], Exception) else []
-    analyst = results[2] if not isinstance(results[2], Exception) else {}
-    idx = 3
-    options_snapshot = {}
-    gex_data = {}
+    def _safe(idx: int, default):
+        v = results[idx]
+        return v if not isinstance(v, Exception) else default
+
+    hv = _safe(0, {}) or {}
+    news = _safe(1, []) or []
+    analyst = _safe(2, {}) or {}
+    ohlcv = _safe(3, {}) or {}
+    fundamental = _safe(4, {}) or {}
+    market_ctx = _safe(5, {}) or {}
+    sector_ctx = _safe(6, {}) or {}
+    idx = 7
+    options_snapshot: dict = {}
+    gex_data: dict = {}
     if options_snapshot_task is not None:
-        options_snapshot = results[idx] if not isinstance(results[idx], Exception) else {}
+        options_snapshot = _safe(idx, {}) or {}
         idx += 1
     if gex_task is not None:
-        gex_data = results[idx] if not isinstance(results[idx], Exception) else {}
+        gex_data = _safe(idx, {}) or {}
+
+    # Compute technical indicators from OHLCV bars
+    bars = ohlcv.get("bars") if isinstance(ohlcv, dict) else None
+    technicals = compute_technical_indicators(bars or [])
 
     return {
         "ticker": ticker,
         "market": market,
         "hv": hv,
-        "news": news or [],
-        "analyst": analyst or {},
-        "options_snapshot": options_snapshot or {},
-        "gex": gex_data or {},
+        "news": news,
+        "analyst": analyst,
+        "options_snapshot": options_snapshot,
+        "gex": gex_data,
         "target_expiration": target_exp,
+        # Newly added — researcher-specialty data
+        "technicals": technicals,
+        "fundamental": fundamental,
+        "market_ctx": market_ctx,
+        "sector_ctx": sector_ctx,
     }
 
 
@@ -575,12 +611,48 @@ def format_context_for_researcher(ctx: dict, mode: AnalysisMode, locale: str) ->
     return "\n".join(line for line in lines if line)
 
 
+def format_researcher_specific_context(ctx: dict, researcher_id: str, mode: AnalysisMode, locale: str) -> str:
+    """
+    Build a researcher-specific prompt block.
+
+    Each researcher receives:
+      1. The base context (always — they all need price/IV/news)
+      2. PLUS a specialized block tailored to their domain
+
+    This makes Technical, Fundamental, Market, Industry, and Financial
+    researchers genuinely different from a generic LLM rephrasing.
+    """
+    base = format_context_for_researcher(ctx, mode, locale)
+
+    # Researchers that get extra specialized data
+    technicals = ctx.get("technicals") or {}
+    fundamental = ctx.get("fundamental") or {}
+    market_ctx = ctx.get("market_ctx") or {}
+    sector_ctx = ctx.get("sector_ctx") or {}
+    market = ctx.get("market") or {}
+
+    extra = ""
+    if researcher_id == "technical":
+        extra = format_technical_block(technicals, locale)
+    elif researcher_id == "fundamental":
+        extra = format_fundamental_block(fundamental, locale)
+    elif researcher_id == "financial":
+        extra = format_financial_block(fundamental, locale)
+    elif researcher_id == "market":
+        extra = format_market_block(market_ctx, locale)
+    elif researcher_id == "industry":
+        extra = format_industry_block(sector_ctx, market.get("change_pct"), locale)
+    # Bull / Bear / News / Options use the base context only (already rich)
+
+    return f"{base}\n\n{extra}\n" if extra else base
+
+
 # ============================================================
 # Pipeline
 # ============================================================
 
 class TraderAgentPipeline:
-    """Orchestrates the 8-researcher + portfolio-manager debate."""
+    """Orchestrates the 9-researcher debate + portfolio-manager decision."""
 
     def __init__(self, llm_client, model: str, fetcher: DataFetcher):
         self.client = llm_client
@@ -653,8 +725,10 @@ class TraderAgentPipeline:
     ) -> dict:
         """Run the portfolio manager to synthesize a final decision."""
         # Build a richer per-researcher briefing — the manager now needs the
-        # full key_points + evidence to write its synthesis section.
+        # full key_points + evidence + (if present) the debate rebuttals
+        # so it can write a credible synthesis section.
         digest_lines = []
+        debate_lines: list[str] = []
         for r in researcher_results:
             name = r.get("name_zh") if locale == "zh" else r.get("name_en")
             rid = r.get("id", "?")
@@ -669,7 +743,27 @@ class TraderAgentPipeline:
                 f"Evidence: {evidence}\n"
                 f"Key points: " + " | ".join(kps[:3])
             )
+            # If a rebuttal was attached during debate phase, add it to the dedicated
+            # debate section so the PM can see how the bull/bear actually clashed.
+            reb = r.get("rebuttal") or {}
+            if reb:
+                rebuttal_text = reb.get("rebuttal", "")
+                reinforced = reb.get("reinforced_evidence", "")
+                concession = reb.get("concession", "")
+                debate_lines.append(
+                    f"\n[{rid}] {name} debate response:\n"
+                    f"  Rebuttal: {rebuttal_text}\n"
+                    f"  Reinforced evidence: {reinforced}\n"
+                    f"  Concession: {concession}"
+                )
         digest = "\n".join(digest_lines)
+        debate_section = ""
+        if debate_lines:
+            debate_section = (
+                ("\n\n## 多空辩论（看多 / 看空互相反驳）\n" if locale == "zh"
+                 else "\n\n## Debate (Bull vs Bear cross-examination)\n")
+                + "\n".join(debate_lines)
+            )
 
         if locale == "zh":
             mode_phrase = "期权交易建议" if mode == "options" else "股票交易建议"
@@ -715,9 +809,11 @@ class TraderAgentPipeline:
 
         user_prompt = (
             f"{context_block}\n\n"
-            f"## Researcher Briefings (full)\n{digest}\n\n"
+            f"## Researcher Briefings (full)\n{digest}"
+            f"{debate_section}\n\n"
             f"{lang_directive}\n\n"
-            "Now make your final decision. Remember: fill EVERY field of the schema, especially `synthesis` for all 9 researchers and `actionable_steps`."
+            "Now make your final decision. Remember: fill EVERY field of the schema, especially `synthesis` for all 9 researchers and `actionable_steps`. "
+            "Use the debate rebuttals (if present) to inform your debate_summary — quote the strongest argument from each side."
         )
         system_prompt = f"{lang_directive}\n\n{role_intro}\n\n{instruction}"
 
@@ -766,6 +862,97 @@ class TraderAgentPipeline:
         except json.JSONDecodeError:
             return {}
 
+    async def _call_debate_rebuttal(
+        self,
+        own_id: str,
+        own_view: dict,
+        opponent_view: dict,
+        ctx: dict,
+        mode: AnalysisMode,
+        locale: str,
+    ) -> dict:
+        """
+        Run a single rebuttal turn. The researcher is shown its OWN initial
+        view + the opponent's view, and asked to (a) acknowledge the strongest
+        opposing point and (b) reinforce its own view with new evidence.
+
+        Returns: {
+          "rebuttal": str,  # 2-3 sentences acknowledging opponent + counter
+          "reinforced_evidence": str,  # 1-2 sentences with sharper evidence
+          "concession": str,  # 1 sentence on what the opponent got right (forces honest debate)
+        }
+        """
+        spec = RESEARCHER_SPECS[own_id]
+        is_zh = locale == "zh"
+        lang = "重要：所有输出必须使用简体中文。" if is_zh else "IMPORTANT: All output must be in ENGLISH only."
+
+        own_name = spec["name_zh"] if is_zh else spec["name_en"]
+        opp_id = opponent_view.get("id", "?")
+        opp_spec = RESEARCHER_SPECS.get(opp_id, {})
+        opp_name = opp_spec.get("name_zh" if is_zh else "name_en", opp_id)
+
+        if is_zh:
+            role = (
+                f"你是 {own_name}。你刚发表了你的第一轮观点，现在 {opp_name} 发表了相反的观点。"
+                "你需要用一段简短的辩论回应反驳他们，但要诚实——必须承认对方至少一个合理的点。"
+                "然后用新的证据强化你自己的论点。"
+            )
+            instruction = (
+                "只返回 JSON：\n"
+                "{\n"
+                '  "rebuttal": "<2-3 句话：直接反驳对方最强的论点，中文>",\n'
+                '  "reinforced_evidence": "<1-2 句话：用数据强化你的立场，中文>",\n'
+                '  "concession": "<1 句话：诚实承认对方说对的地方，中文>"\n'
+                "}"
+            )
+        else:
+            role = (
+                f"You are the {own_name}. You just published your first-round view; now the {opp_name} has published the opposing view. "
+                "Write a short debate response: rebut their strongest point, but be intellectually honest — you MUST concede at least one point they got right. "
+                "Then reinforce your own thesis with sharper evidence."
+            )
+            instruction = (
+                "Return JSON only:\n"
+                "{\n"
+                '  "rebuttal": "<2-3 sentences directly rebutting their strongest argument, ENGLISH>",\n'
+                '  "reinforced_evidence": "<1-2 sentences using data to strengthen your stance, ENGLISH>",\n'
+                '  "concession": "<1 sentence honestly conceding what they got right, ENGLISH>"\n'
+                "}"
+            )
+
+        own_summary = (
+            f"Your initial view:\n"
+            f"  Stance: {own_view.get('stance')} ({own_view.get('confidence')}/10)\n"
+            f"  Headline: {own_view.get('headline')}\n"
+            f"  Evidence: {own_view.get('evidence')}\n"
+        )
+        opp_summary = (
+            f"\nOpponent's view ({opp_name}):\n"
+            f"  Stance: {opponent_view.get('stance')} ({opponent_view.get('confidence')}/10)\n"
+            f"  Headline: {opponent_view.get('headline')}\n"
+            f"  Evidence: {opponent_view.get('evidence')}\n"
+            f"  Key points: " + " | ".join((opponent_view.get('key_points') or [])[:3])
+        )
+        ticker = ctx.get("ticker", "")
+
+        system_prompt = f"{lang}\n\n{role}\n\n{instruction}"
+        user_prompt = f"Ticker: {ticker}\n\n{own_summary}{opp_summary}\n\n{lang}"
+
+        try:
+            resp = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.5,
+                max_tokens=400,
+            )
+            content = resp.choices[0].message.content or ""
+            return self._parse_json(content) or {}
+        except Exception:
+            return {}
+
     async def run(
         self,
         ticker: str,
@@ -775,51 +962,79 @@ class TraderAgentPipeline:
         """
         Run the full pipeline. Yields SSE-formatted strings.
 
+        Phases:
+          1. gathering_data — fetch all market + technical + fundamental data
+          2. research_start — 9 researchers in parallel, each with specialized data
+          3. debate_start   — Bull rebuts Bear and vice-versa (NEW)
+          4. manager_start  — PM synthesizes everything (initial views + rebuttals)
+
         Events emitted:
-          - data: {"type": "phase", "phase": "research_start"}
-          - data: {"type": "researcher", "result": {...}}  (one per researcher)
-          - data: {"type": "phase", "phase": "manager_start"}
+          - data: {"type": "phase", "phase": "<phase_name>"}
+          - data: {"type": "researcher", "result": {...}}      (one per researcher)
+          - data: {"type": "rebuttal", "id": "bull|bear", "rebuttal": {...}}  (NEW)
           - data: {"type": "manager", "result": {...}}
-          - data: {"type": "done"}
+          - data: {"type": "done", "researchers": [...], "manager": {...}}
           - data: {"type": "error", "message": "..."}
         """
         try:
             # 1. Gather context
             yield self._sse({"type": "phase", "phase": "gathering_data"})
             ctx = await gather_research_context(ticker, self.fetcher)
-            context_block = format_context_for_researcher(ctx, mode, locale)
 
-            # 2. Research phase (all 8 in parallel)
+            # 2. Research phase — each researcher gets a SPECIALIZED prompt
             yield self._sse({"type": "phase", "phase": "research_start"})
             tasks = [
-                self._call_researcher(key, spec, context_block, locale)
+                self._call_researcher(
+                    key,
+                    spec,
+                    format_researcher_specific_context(ctx, key, mode, locale),
+                    locale,
+                )
                 for key, spec in RESEARCHER_SPECS.items()
             ]
-            # Stream results as they complete
             researcher_results: list[dict] = []
             for coro in asyncio.as_completed(tasks):
                 result = await coro
                 researcher_results.append(result)
                 yield self._sse({"type": "researcher", "result": result})
 
-            # Restore canonical order so the frontend can render in
-            # bull/bear/technical/... order even though they finished out of order.
+            # Restore canonical order so the frontend renders consistently
             order = list(RESEARCHER_SPECS.keys())
             researcher_results.sort(key=lambda r: order.index(r["id"]) if r["id"] in order else 999)
 
-            # 3. Manager phase
+            # 3. Debate phase — Bull rebuts Bear, Bear rebuts Bull (in parallel)
+            yield self._sse({"type": "phase", "phase": "debate_start"})
+            bull_view = next((r for r in researcher_results if r["id"] == "bull"), None)
+            bear_view = next((r for r in researcher_results if r["id"] == "bear"), None)
+            rebuttals: dict[str, dict] = {}
+            if bull_view and bear_view:
+                bull_rebuttal_task = self._call_debate_rebuttal("bull", bull_view, bear_view, ctx, mode, locale)
+                bear_rebuttal_task = self._call_debate_rebuttal("bear", bear_view, bull_view, ctx, mode, locale)
+                bull_reb, bear_reb = await asyncio.gather(
+                    bull_rebuttal_task, bear_rebuttal_task, return_exceptions=True,
+                )
+                if not isinstance(bull_reb, Exception) and bull_reb:
+                    rebuttals["bull"] = bull_reb
+                    yield self._sse({"type": "rebuttal", "id": "bull", "rebuttal": bull_reb})
+                if not isinstance(bear_reb, Exception) and bear_reb:
+                    rebuttals["bear"] = bear_reb
+                    yield self._sse({"type": "rebuttal", "id": "bear", "rebuttal": bear_reb})
+
+            # Attach rebuttals onto the researcher records so PM and frontend can both see them
+            for r in researcher_results:
+                if r["id"] in rebuttals:
+                    r["rebuttal"] = rebuttals[r["id"]]
+
+            # 4. Manager phase — sees both initial views AND debate rebuttals
             yield self._sse({"type": "phase", "phase": "manager_start"})
-            decision = await self._call_manager(researcher_results, context_block, mode, locale)
+            base_block = format_context_for_researcher(ctx, mode, locale)
+            decision = await self._call_manager(researcher_results, base_block, mode, locale)
             yield self._sse({
                 "type": "manager",
-                "result": {
-                    "mode": mode,
-                    "ticker": ticker,
-                    **decision,
-                },
+                "result": {"mode": mode, "ticker": ticker, **decision},
             })
 
-            # 4. Done — also emit the consolidated researcher_results in canonical order
+            # 5. Done — emit consolidated state for client persistence
             yield self._sse({
                 "type": "done",
                 "researchers": researcher_results,

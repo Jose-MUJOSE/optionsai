@@ -142,7 +142,7 @@ interface AppState {
   // this, switching views unmounts TraderAgent and aborts the SSE stream.
   traderTicker: string | null;
   traderMode: "stock" | "options";
-  traderPhase: "idle" | "gathering" | "research" | "manager" | "done" | "error";
+  traderPhase: "idle" | "gathering" | "research" | "debate" | "manager" | "done" | "error";
   traderResearchers: ResearcherResult[];
   traderManager: ManagerDecision | null;
   traderError: string | null;
@@ -273,7 +273,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Trader Agent — initial state
   traderTicker: null,
   traderMode: "stock" as TraderMode,
-  traderPhase: "idle" as "idle" | "gathering" | "research" | "manager" | "done" | "error",
+  traderPhase: "idle" as "idle" | "gathering" | "research" | "debate" | "manager" | "done" | "error",
   traderResearchers: [] as ResearcherResult[],
   traderManager: null as ManagerDecision | null,
   traderError: null as string | null,
@@ -807,6 +807,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       for await (const event of streamTraderAgent({ ticker, mode: traderMode, locale })) {
         if (event.type === "phase") {
           if (event.phase === "research_start") set({ traderPhase: "research" });
+          else if (event.phase === "debate_start") set({ traderPhase: "debate" });
           else if (event.phase === "manager_start") set({ traderPhase: "manager" });
           else if (event.phase === "gathering_data") set({ traderPhase: "gathering" });
         } else if (event.type === "researcher") {
@@ -814,6 +815,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           const prev = get().traderResearchers;
           const others = prev.filter((p) => p.id !== event.result.id);
           set({ traderResearchers: [...others, event.result] });
+        } else if (event.type === "rebuttal") {
+          // Attach rebuttal onto the matching researcher record (Bull or Bear)
+          const prev = get().traderResearchers;
+          set({
+            traderResearchers: prev.map((p) =>
+              p.id === event.id ? { ...p, rebuttal: event.rebuttal } : p,
+            ),
+          });
         } else if (event.type === "manager") {
           set({ traderManager: event.result });
         } else if (event.type === "done") {

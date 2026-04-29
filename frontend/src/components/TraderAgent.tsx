@@ -452,12 +452,14 @@ function PhaseIndicator(props: { phase: string; researchersDone: number; locale:
   const labels: Record<string, string> = {
     gathering: t("trader.gathering", props.locale),
     research: `${t("trader.researchPhase", props.locale)} (${props.researchersDone}/9)`,
+    debate: props.locale === "zh" ? "看多/看空交叉辩论中..." : "Bull/Bear cross-examining...",
     manager: t("trader.managerPhase", props.locale),
   };
   const pct =
     props.phase === "gathering" ? 5 :
-    props.phase === "research" ? 5 + (props.researchersDone / 9) * 75 :
-    props.phase === "manager" ? 90 : 0;
+    props.phase === "research" ? 5 + (props.researchersDone / 9) * 70 :
+    props.phase === "debate" ? 82 :
+    props.phase === "manager" ? 92 : 0;
 
   return (
     <div className="card p-4 anim-fade-up">
@@ -536,6 +538,44 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
             </div>
           )}
           {researcher.risks && <Section label={t("trader.risks", locale)} text={researcher.risks} muted />}
+
+          {/* Debate-phase rebuttal block (Bull / Bear only) */}
+          {researcher.rebuttal && (
+            <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700">
+                  {locale === "zh" ? "辩论回应" : "Debate Response"}
+                </span>
+                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-200 text-violet-800">
+                  {locale === "zh" ? "新" : "NEW"}
+                </span>
+              </div>
+              {researcher.rebuttal.rebuttal && (
+                <div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-violet-700 mb-0.5">
+                    {locale === "zh" ? "反驳对方" : "Rebuttal"}
+                  </div>
+                  <div className="text-[12px] text-violet-900 leading-snug">{researcher.rebuttal.rebuttal}</div>
+                </div>
+              )}
+              {researcher.rebuttal.reinforced_evidence && (
+                <div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-violet-700 mb-0.5">
+                    {locale === "zh" ? "强化证据" : "Reinforced Evidence"}
+                  </div>
+                  <div className="text-[12px] text-violet-900 leading-snug">{researcher.rebuttal.reinforced_evidence}</div>
+                </div>
+              )}
+              {researcher.rebuttal.concession && (
+                <div>
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-violet-700 mb-0.5">
+                    {locale === "zh" ? "诚实让步" : "Concession"}
+                  </div>
+                  <div className="text-[12px] text-violet-900/80 italic leading-snug">{researcher.rebuttal.concession}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

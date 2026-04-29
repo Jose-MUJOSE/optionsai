@@ -652,6 +652,15 @@ export async function* streamChat(
 export type TraderMode = "stock" | "options";
 export type ResearcherStance = "bullish" | "bearish" | "neutral";
 
+/** Cross-examination response from a debate phase. Currently only Bull and
+ *  Bear participate in debate, but the type is keyed by string for forward
+ *  compatibility (e.g. Technical vs Fundamental debate later). */
+export interface ResearcherRebuttal {
+  rebuttal: string;
+  reinforced_evidence?: string;
+  concession?: string;
+}
+
 export interface ResearcherResult {
   id: string;
   name_en: string;
@@ -664,6 +673,8 @@ export interface ResearcherResult {
   key_points: string[];
   evidence: string;
   risks: string;
+  /** Present after the debate phase for Bull/Bear researchers. */
+  rebuttal?: ResearcherRebuttal;
 }
 
 /** Per-researcher synthesis written by the PM. Keys mirror researcher IDs. */
@@ -718,8 +729,9 @@ export interface ManagerOptionsDecision {
 export type ManagerDecision = ManagerStockDecision | ManagerOptionsDecision;
 
 export type TraderEvent =
-  | { type: "phase"; phase: "gathering_data" | "research_start" | "manager_start" }
+  | { type: "phase"; phase: "gathering_data" | "research_start" | "debate_start" | "manager_start" }
   | { type: "researcher"; result: ResearcherResult }
+  | { type: "rebuttal"; id: string; rebuttal: ResearcherRebuttal }
   | { type: "manager"; result: ManagerDecision & { mode: TraderMode; ticker: string } }
   | { type: "done"; researchers: ResearcherResult[]; manager: ManagerDecision }
   | { type: "error"; message: string };
