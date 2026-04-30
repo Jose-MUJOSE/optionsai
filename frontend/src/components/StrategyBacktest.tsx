@@ -27,7 +27,7 @@ import { PlayCircle, Loader2, TrendingUp, TrendingDown, Plus, Info } from "lucid
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import FeatureGuide from "./FeatureGuide";
-import { runBacktest, type BacktestResponse, type BacktestStrategy } from "@/lib/api";
+import { runBacktest, type BacktestResponse, type BacktestStrategy, type BacktestMetrics } from "@/lib/api";
 import { addPaperPosition } from "@/lib/paperPortfolio";
 
 const STRATEGIES: { value: BacktestStrategy; zh: string; en: string }[] = [
@@ -236,6 +236,9 @@ export default function StrategyBacktest() {
             <Stat label={locale === "zh" ? "谷值 P&L" : "Trough P&L"} value={`$${result.min_pnl_per_contract.toFixed(0)}`} tone="down" />
           </div>
 
+          {/* Scientific metrics panel — Sharpe / Sortino / MDD / Win Rate / Costs */}
+          {result.metrics && <MetricsPanel metrics={result.metrics} locale={locale} />}
+
           {/* P&L curve */}
           <div className="h-64 mb-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -371,6 +374,104 @@ function Stat({
         {value}
       </div>
       {hint && <div className="text-[10px] text-[var(--text-2)] mt-0.5">{hint}</div>}
+    </div>
+  );
+}
+
+/**
+ * MetricsPanel — Sharpe / Sortino / MDD / Win Rate / Profit Factor.
+ *
+ * Color tone is decided per-metric using rule-of-thumb thresholds that match
+ * common quant-finance conventions (e.g. Sharpe > 1 = good, > 2 = excellent).
+ * The intent is to flag obvious red/green at a glance while keeping the raw
+ * number visible — no interpretation hidden behind a single label.
+ */
+function MetricsPanel({ metrics, locale }: { metrics: BacktestMetrics; locale: "zh" | "en" }) {
+  const fmt = (v: number | null, digits = 2) => (v === null ? "—" : v.toFixed(digits));
+
+  // Sharpe tone: > 1 good, > 2 excellent, < 0 bad
+  const sharpeTone: "up" | "down" | "neutral" =
+    metrics.sharpe_ratio === null ? "neutral" :
+    metrics.sharpe_ratio >= 1 ? "up" :
+    metrics.sharpe_ratio < 0 ? "down" : "neutral";
+
+  // Sortino is generally interpreted with the same thresholds as Sharpe
+  const sortinoTone: "up" | "down" | "neutral" =
+    metrics.sortino_ratio === null ? "neutral" :
+    metrics.sortino_ratio >= 1 ? "up" :
+    metrics.sortino_ratio < 0 ? "down" : "neutral";
+
+  // MDD — bigger drawdown is always worse, so always "down" tone for visibility
+  const mddTone = metrics.max_drawdown_dollars > 0 ? "down" : "neutral";
+
+  // Win rate above 50% is positive
+  const winTone: "up" | "down" | "neutral" =
+    metrics.win_rate_pct >= 55 ? "up" :
+    metrics.win_rate_pct <= 45 ? "down" : "neutral";
+
+  // Profit factor > 1 = profitable strategy
+  const pfTone: "up" | "down" | "neutral" =
+    metrics.profit_factor === null ? "neutral" :
+    metrics.profit_factor >= 1.5 ? "up" :
+    metrics.profit_factor < 1 ? "down" : "neutral";
+
+  const isZh = locale === "zh";
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--text-2)]">
+          {isZh ? "科学化指标" : "Scientific Metrics"}
+        </span>
+        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
+          NEW
+        </span>
+        <div className="flex-1 h-px bg-[var(--line-soft)]" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+        <Stat
+          label="Sharpe"
+          value={fmt(metrics.sharpe_ratio, 2)}
+          tone={sharpeTone}
+          hint={isZh ? "风险调整后回报 (年化)" : "risk-adj return (ann.)"}
+        />
+        <Stat
+          label="Sortino"
+          value={fmt(metrics.sortino_ratio, 2)}
+          tone={sortinoTone}
+          hint={isZh ? "下行波动调整" : "downside-only"}
+        />
+        <Stat
+          label={isZh ? "最大回撤" : "Max Drawdown"}
+          value={`$${fmt(metrics.max_drawdown_dollars, 0)}`}
+          tone={mddTone}
+          hint={`${fmt(metrics.max_drawdown_pct, 1)}% ${isZh ? "占初始权利金" : "of initial premium"}`}
+        />
+        <Stat
+          label={isZh ? "胜率" : "Win Rate"}
+          value={`${fmt(metrics.win_rate_pct, 1)}%`}
+          tone={winTone}
+          hint={isZh ? "正收益日占比" : "% positive days"}
+        />
+        <Stat
+          label={isZh ? "盈亏比" : "Profit Factor"}
+          value={fmt(metrics.profit_factor, 2)}
+          tone={pfTone}
+          hint={isZh ? "总盈利 / 总亏损" : "gross gains / losses"}
+        />
+        <Stat
+          label="Calmar"
+          value={fmt(metrics.calmar_ratio, 2)}
+          tone="neutral"
+          hint={isZh ? "年化回报 / 最大回撤" : "ann. return / MDD"}
+        />
+        <Stat
+          label={isZh ? "扣费后 P&L" : "P&L after costs"}
+          value={`$${fmt(metrics.final_pnl_after_costs, 0)}`}
+          tone={metrics.final_pnl_after_costs > 0 ? "up" : "down"}
+          hint={`${isZh ? "扣除" : "less"} $${fmt(metrics.transaction_cost_total, 2)} ${isZh ? "成本" : "cost"}`}
+        />
+      </div>
     </div>
   );
 }

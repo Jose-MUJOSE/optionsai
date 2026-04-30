@@ -18,6 +18,7 @@ import {
   type PaperPosition,
 } from "@/lib/paperPortfolio";
 import { runBacktest } from "@/lib/api";
+import PortfolioGreeks from "./PortfolioGreeks";
 
 interface PositionWithPnl extends PaperPosition {
   current_spot: number | null;
@@ -124,6 +125,9 @@ export default function PaperPortfolio() {
           {locale === "zh" ? "刷新全部" : "Refresh All"}
         </button>
       </div>
+
+      {/* Portfolio Greeks panel — appears between header and position list when positions exist */}
+      <PortfolioGreeks />
 
       {items.length === 0 ? (
         <div className="bg-white border border-[var(--line-soft)] rounded-2xl p-10 text-center">

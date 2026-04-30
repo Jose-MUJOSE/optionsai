@@ -146,6 +146,10 @@ interface AppState {
   traderResearchers: ResearcherResult[];
   traderManager: ManagerDecision | null;
   traderError: string | null;
+  /** Subset of researcher IDs the user wants to run. Empty = run all 9. */
+  traderSelectedResearchers: string[];
+  /** Number of researchers actually running this round (set when SSE 'selected' arrives). */
+  traderActiveCount: number;
   /** Saved analyses for re-viewing later (persisted to localStorage). */
   traderHistory: TraderHistoryEntry[];
 
@@ -179,6 +183,10 @@ interface AppState {
 
   // ==== Trader Agent actions ====
   setTraderMode: (m: TraderMode) => void;
+  /** Toggle a single researcher in / out of the selected set. */
+  toggleTraderResearcher: (id: string) => void;
+  /** Replace the entire selected set (e.g. preset combos). */
+  setTraderSelectedResearchers: (ids: string[]) => void;
   /** Start a new trader analysis. Runs in the background — won't be cancelled if the user navigates away. */
   runTraderAnalysis: (ticker: string) => Promise<void>;
   /** Reset live state but keep history intact. */
@@ -277,6 +285,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   traderResearchers: [] as ResearcherResult[],
   traderManager: null as ManagerDecision | null,
   traderError: null as string | null,
+  traderSelectedResearchers: [] as string[],   // empty = all 9
+  traderActiveCount: 9,
   traderHistory: [] as TraderHistoryEntry[],
 
   // ---- Actions ----
@@ -754,6 +764,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setTraderMode: (m) => set({ traderMode: m }),
 
+  toggleTraderResearcher: (id: string) => {
+    const cur = get().traderSelectedResearchers;
+    // If empty (= all), start by removing this one. Otherwise toggle membership.
+    const ALL_IDS = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"];
+    let next: string[];
+    if (cur.length === 0) {
+      next = ALL_IDS.filter((x) => x !== id);
+    } else if (cur.includes(id)) {
+      next = cur.filter((x) => x !== id);
+    } else {
+      next = [...cur, id];
+    }
+    // If all 9 are now selected, store as empty (= "all") for cleanliness
+    if (next.length === ALL_IDS.length) {
+      next = [];
+    }
+    set({ traderSelectedResearchers: next });
+  },
+
+  setTraderSelectedResearchers: (ids: string[]) => {
+    const ALL_IDS = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"];
+    const valid = ids.filter((x) => ALL_IDS.includes(x));
+    // Normalize: full set → empty = "all"
+    set({ traderSelectedResearchers: valid.length === ALL_IDS.length ? [] : valid });
+  },
+
   resetTraderAnalysis: () => set({
     traderPhase: "idle",
     traderResearchers: [],
@@ -795,21 +831,33 @@ export const useAppStore = create<AppState>((set, get) => ({
    * On completion, the result is auto-saved to localStorage history.
    */
   runTraderAnalysis: async (ticker: string) => {
-    const { traderMode, locale } = get();
+    const { traderMode, locale, traderSelectedResearchers } = get();
     set({
       traderTicker: ticker,
       traderPhase: "gathering",
       traderResearchers: [],
       traderManager: null,
       traderError: null,
+      // Pre-set active count so progress bar starts with right scale; backend
+      // will overwrite via `selected` event with authoritative count.
+      traderActiveCount: traderSelectedResearchers.length === 0 ? 9 : traderSelectedResearchers.length,
     });
     try {
-      for await (const event of streamTraderAgent({ ticker, mode: traderMode, locale })) {
+      for await (const event of streamTraderAgent({
+        ticker,
+        mode: traderMode,
+        locale,
+        // Only send when user picked a subset; omitted = backend runs all 9
+        selected_researchers: traderSelectedResearchers.length > 0 ? traderSelectedResearchers : undefined,
+      })) {
         if (event.type === "phase") {
           if (event.phase === "research_start") set({ traderPhase: "research" });
           else if (event.phase === "debate_start") set({ traderPhase: "debate" });
           else if (event.phase === "manager_start") set({ traderPhase: "manager" });
           else if (event.phase === "gathering_data") set({ traderPhase: "gathering" });
+        } else if (event.type === "selected") {
+          // Authoritative count of researchers actually running this round
+          set({ traderActiveCount: event.count });
         } else if (event.type === "researcher") {
           // Dedupe by id in case of replay
           const prev = get().traderResearchers;

@@ -716,6 +716,9 @@ async def run_backtest_endpoint(ticker: str, body: dict):
     hold_days = body.get("hold_days")
     if hold_days is not None:
         hold_days = int(hold_days)
+    # Transaction-cost params — defaults match retail brokers (~0.5% B/A spread + $0.65/contract)
+    transaction_cost_pct = float(body.get("transaction_cost_pct", 0.005))
+    fixed_commission_per_contract = float(body.get("fixed_commission_per_contract", 1.30))
 
     # 1) 拉 2 年 OHLCV (足够 30+entry 前置 HV 计算)
     try:
@@ -745,6 +748,8 @@ async def run_backtest_endpoint(ticker: str, body: dict):
             entry_date=entry_date,
             dte_days=dte_days,
             hold_days=hold_days,
+            transaction_cost_pct=transaction_cost_pct,
+            fixed_commission_per_contract=fixed_commission_per_contract,
         )
         return asdict(result)
     except ValueError as e:

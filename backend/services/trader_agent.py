@@ -958,39 +958,63 @@ class TraderAgentPipeline:
         ticker: str,
         mode: AnalysisMode,
         locale: str,
+        selected_researchers: Optional[list[str]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Run the full pipeline. Yields SSE-formatted strings.
 
+        Args:
+            selected_researchers: optional list of researcher IDs to run.
+                If None or empty, all 9 run. Bull and Bear MUST both be
+                included for the debate phase to fire — if only one is
+                selected, debate is silently skipped.
+
         Phases:
           1. gathering_data — fetch all market + technical + fundamental data
-          2. research_start — 9 researchers in parallel, each with specialized data
-          3. debate_start   — Bull rebuts Bear and vice-versa (NEW)
-          4. manager_start  — PM synthesizes everything (initial views + rebuttals)
+          2. research_start — N selected researchers in parallel
+          3. debate_start   — Bull rebuts Bear and vice-versa (only if both selected)
+          4. manager_start  — PM synthesizes everything
 
         Events emitted:
           - data: {"type": "phase", "phase": "<phase_name>"}
-          - data: {"type": "researcher", "result": {...}}      (one per researcher)
-          - data: {"type": "rebuttal", "id": "bull|bear", "rebuttal": {...}}  (NEW)
+          - data: {"type": "selected", "ids": [...], "count": N}  (NEW)
+          - data: {"type": "researcher", "result": {...}}
+          - data: {"type": "rebuttal", "id": "bull|bear", "rebuttal": {...}}
           - data: {"type": "manager", "result": {...}}
           - data: {"type": "done", "researchers": [...], "manager": {...}}
           - data: {"type": "error", "message": "..."}
         """
         try:
+            # Filter researchers — fall back to all 9 if invalid input given
+            valid_ids = list(RESEARCHER_SPECS.keys())
+            if selected_researchers:
+                # Preserve the canonical order (RESEARCHER_SPECS) instead of
+                # whatever order the client sent — keeps frontend rendering stable.
+                selected_set = {s for s in selected_researchers if s in valid_ids}
+                if not selected_set:
+                    selected_set = set(valid_ids)
+                active_ids = [k for k in valid_ids if k in selected_set]
+            else:
+                active_ids = valid_ids
+
             # 1. Gather context
             yield self._sse({"type": "phase", "phase": "gathering_data"})
             ctx = await gather_research_context(ticker, self.fetcher)
+
+            # Tell the frontend exactly which researchers will fire so progress bars
+            # can scale properly (5/5 instead of 5/9).
+            yield self._sse({"type": "selected", "ids": active_ids, "count": len(active_ids)})
 
             # 2. Research phase — each researcher gets a SPECIALIZED prompt
             yield self._sse({"type": "phase", "phase": "research_start"})
             tasks = [
                 self._call_researcher(
                     key,
-                    spec,
+                    RESEARCHER_SPECS[key],
                     format_researcher_specific_context(ctx, key, mode, locale),
                     locale,
                 )
-                for key, spec in RESEARCHER_SPECS.items()
+                for key in active_ids
             ]
             researcher_results: list[dict] = []
             for coro in asyncio.as_completed(tasks):
@@ -1002,7 +1026,7 @@ class TraderAgentPipeline:
             order = list(RESEARCHER_SPECS.keys())
             researcher_results.sort(key=lambda r: order.index(r["id"]) if r["id"] in order else 999)
 
-            # 3. Debate phase — Bull rebuts Bear, Bear rebuts Bull (in parallel)
+            # 3. Debate phase — runs ONLY if BOTH Bull and Bear were selected
             yield self._sse({"type": "phase", "phase": "debate_start"})
             bull_view = next((r for r in researcher_results if r["id"] == "bull"), None)
             bear_view = next((r for r in researcher_results if r["id"] == "bear"), None)

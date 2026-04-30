@@ -477,6 +477,22 @@ export interface BacktestBar {
   sigma: number;
 }
 
+/** Scientific performance metrics from backtest (Sharpe, MDD, etc.). */
+export interface BacktestMetrics {
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  calmar_ratio: number | null;
+  max_drawdown_dollars: number;
+  max_drawdown_pct: number;
+  win_rate_pct: number;
+  profit_factor: number | null;
+  avg_win: number;
+  avg_loss: number;
+  final_pnl_after_costs: number;
+  transaction_cost_total: number;
+  return_volatility_annual_pct: number;
+}
+
 export interface BacktestResponse {
   ticker: string;
   strategy_type: BacktestStrategy;
@@ -493,6 +509,7 @@ export interface BacktestResponse {
   final_pnl_per_contract: number;
   final_pnl_pct: number;
   bars: BacktestBar[];
+  metrics?: BacktestMetrics;          // ★ NEW: scientific performance metrics
   assumptions: Record<string, unknown>;
   data_sources: Record<string, string>;
 }
@@ -730,6 +747,7 @@ export type ManagerDecision = ManagerStockDecision | ManagerOptionsDecision;
 
 export type TraderEvent =
   | { type: "phase"; phase: "gathering_data" | "research_start" | "debate_start" | "manager_start" }
+  | { type: "selected"; ids: string[]; count: number }
   | { type: "researcher"; result: ResearcherResult }
   | { type: "rebuttal"; id: string; rebuttal: ResearcherRebuttal }
   | { type: "manager"; result: ManagerDecision & { mode: TraderMode; ticker: string } }
@@ -741,11 +759,17 @@ export async function* streamTraderAgent(params: {
   ticker: string;
   mode: TraderMode;
   locale: "zh" | "en";
+  /** Optional subset of researcher IDs to run; omit for all 9. */
+  selected_researchers?: string[];
 }): AsyncGenerator<TraderEvent> {
   const res = await fetch(`${API_URL}/api/trader/analyze/${params.ticker}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: params.mode, locale: params.locale }),
+    body: JSON.stringify({
+      mode: params.mode,
+      locale: params.locale,
+      selected_researchers: params.selected_researchers,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -800,4 +824,67 @@ export async function downloadTraderReport(params: {
     throw new Error(typeof err.detail === "string" ? err.detail : "Report generation failed");
   }
   return res.blob();
+}
+
+// ============================================================
+// Portfolio Greeks Aggregation
+// ============================================================
+
+export interface PortfolioGreeksLeg {
+  action: "buy" | "sell";
+  opt_type: "call" | "put";
+  strike: number;
+  quantity: number;
+}
+
+export interface PortfolioGreeksPositionRequest {
+  ticker: string;
+  legs: PortfolioGreeksLeg[];
+  dte_days: number;
+  entry_date?: string;
+}
+
+export interface PortfolioGreeksPosition {
+  ticker: string;
+  spot_price: number;
+  sigma_pct: number;
+  dte_remaining: number;
+  raw_delta: number;
+  raw_gamma: number;
+  raw_theta: number;
+  raw_vega: number;
+  delta_dollars: number;
+  gamma_dollars: number;
+  theta_dollars: number;
+  vega_dollars: number;
+}
+
+export interface PortfolioGreeksResponse {
+  position_count: number;
+  ticker_count: number;
+  totals: {
+    delta_dollars: number;
+    gamma_dollars: number;
+    theta_dollars: number;
+    vega_dollars: number;
+  };
+  positions: PortfolioGreeksPosition[];
+  scenarios: Record<string, number>;
+  fetch_errors: string[];
+  assumptions: Record<string, unknown>;
+}
+
+export async function fetchPortfolioGreeks(
+  positions: PortfolioGreeksPositionRequest[],
+): Promise<PortfolioGreeksResponse> {
+  const res = await fetch(`${API_URL}/api/portfolio/greeks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ positions }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Portfolio Greeks failed");
+  }
+  return res.json();
 }

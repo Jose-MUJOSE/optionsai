@@ -46,6 +46,12 @@ class TraderAnalyzeRequest(BaseModel):
         description="Whether to analyze the underlying stock or its options",
     )
     locale: Literal["zh", "en"] = Field(default="en")
+    # Optional subset of researchers to run. None / empty = all 9.
+    # Saves LLM cost when the user only cares about specific perspectives.
+    selected_researchers: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of researcher IDs to run; defaults to all 9",
+    )
 
 
 @router.post("/trader/analyze/{ticker}")
@@ -63,7 +69,7 @@ async def trader_analyze(ticker: str, req: TraderAnalyzeRequest = None):
     pipeline = TraderAgentPipeline(client, MODEL, _fetcher)
 
     async def event_stream():
-        async for chunk in pipeline.run(ticker, req.mode, req.locale):
+        async for chunk in pipeline.run(ticker, req.mode, req.locale, req.selected_researchers):
             yield chunk
 
     return StreamingResponse(
@@ -325,3 +331,73 @@ async def list_researchers():
             for key, spec in RESEARCHER_SPECS.items()
         ]
     }
+
+
+# ============================================================
+# Portfolio Greeks aggregation
+# ============================================================
+
+class PortfolioLeg(BaseModel):
+    action: Literal["buy", "sell"]
+    opt_type: Literal["call", "put"]
+    strike: float
+    quantity: int
+
+
+class PortfolioPositionRequest(BaseModel):
+    ticker: str
+    legs: list[PortfolioLeg]
+    dte_days: int
+    entry_date: str = ""
+
+
+class PortfolioGreeksRequest(BaseModel):
+    positions: list[PortfolioPositionRequest]
+
+
+@router.post("/portfolio/greeks")
+async def aggregate_greeks(req: PortfolioGreeksRequest):
+    """
+    Aggregate Greeks across paper-portfolio positions.
+
+    Sends back per-position Greeks + portfolio totals + scenario P&L
+    (spot ±5%, IV ±5pts, crash, rally).
+
+    All tickers are validated US-only. Failed-fetch tickers are reported
+    in `fetch_errors` but do not abort the whole request — partial results
+    are still useful for the user.
+    """
+    from backend.services.portfolio_greeks import (
+        PortfolioPosition,
+        aggregate_portfolio_greeks,
+    )
+
+    # Validate every ticker
+    for pos in req.positions:
+        result = validate_us_ticker(pos.ticker.upper().strip())
+        if not result.valid:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_TICKER",
+                    "ticker": pos.ticker,
+                    "message_en": result.reason_en,
+                    "message_zh": result.reason_zh,
+                },
+            )
+
+    # Convert request → service dataclass
+    service_positions = [
+        PortfolioPosition(
+            ticker=p.ticker.upper().strip(),
+            legs=[leg.model_dump() for leg in p.legs],
+            dte_days=p.dte_days,
+            entry_date=p.entry_date,
+        )
+        for p in req.positions
+    ]
+
+    try:
+        return await aggregate_portfolio_greeks(service_positions, _fetcher)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Aggregation failed: {type(e).__name__}: {e}")

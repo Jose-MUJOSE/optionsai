@@ -156,6 +156,40 @@ class BacktestBar:
 
 
 @dataclass
+class BacktestMetrics:
+    """
+    Scientific performance metrics computed from the day-by-day P&L curve.
+
+    Convention notes:
+      - Returns are computed as daily P&L change normalized by |initial_price|
+        so they're directly comparable across long-debit and short-credit strategies.
+      - Sharpe / Sortino are *annualized* using sqrt(252) — standard in equity quant
+        even though we have a single trade (gives a comparable scale).
+      - Max Drawdown is on the cumulative P&L curve in dollars, plus the percentage
+        version normalized by initial premium.
+      - Win Rate is the fraction of bars that closed above the prior bar (positive
+        daily returns), NOT the fraction of bars where total P&L > 0.
+    """
+    # Risk-adjusted return
+    sharpe_ratio: Optional[float]        # annualized; None if std is zero
+    sortino_ratio: Optional[float]       # downside-only Sharpe
+    calmar_ratio: Optional[float]        # annualized return / max drawdown
+    # Drawdown
+    max_drawdown_dollars: float          # peak-to-trough $ drop on cumulative curve
+    max_drawdown_pct: float              # as % of |initial_price * 100|
+    # Win/loss profile
+    win_rate_pct: float                  # % of days with positive return
+    profit_factor: Optional[float]       # gross gains / |gross losses|; None if no losses
+    avg_win: float                       # avg of positive daily $ returns
+    avg_loss: float                      # avg of negative daily $ returns (negative number)
+    # Transaction-cost adjusted
+    final_pnl_after_costs: float         # final P&L net of round-trip slippage + commissions
+    transaction_cost_total: float        # total deducted ($) for the round trip
+    # Volatility of returns
+    return_volatility_annual_pct: float
+
+
+@dataclass
 class BacktestResult:
     ticker: str
     strategy_type: str
@@ -172,8 +206,113 @@ class BacktestResult:
     final_pnl_per_contract: float
     final_pnl_pct: float
     bars: list[dict]
+    metrics: dict                        # ★ NEW: scientific performance metrics
     assumptions: dict                    # 明确声明所有假设
     data_sources: dict                   # 明确声明数据来源
+
+
+def _compute_metrics(
+    bars: list["BacktestBar"],
+    initial_price: float,
+    transaction_cost_pct: float = 0.005,    # 0.5% round-trip (B/A spread + commissions)
+    fixed_commission_per_contract: float = 1.30,  # $0.65 × 2 (round trip)
+) -> BacktestMetrics:
+    """
+    Compute scientific backtest metrics from the bar-by-bar P&L series.
+
+    Transaction-cost model (intentionally simple but transparent):
+      - Round-trip cost = (transaction_cost_pct × |initial_price|) × 100 + fixed_commission
+      - Deducted from the final P&L only (a one-time cost on entry+exit)
+
+    Risk-adjusted metrics use the daily $ return series (delta of cumulative P&L).
+    Annualization factor = sqrt(252).
+    """
+    if not bars or len(bars) < 2:
+        return BacktestMetrics(
+            sharpe_ratio=None, sortino_ratio=None, calmar_ratio=None,
+            max_drawdown_dollars=0.0, max_drawdown_pct=0.0,
+            win_rate_pct=0.0, profit_factor=None, avg_win=0.0, avg_loss=0.0,
+            final_pnl_after_costs=bars[-1].pnl_per_contract if bars else 0.0,
+            transaction_cost_total=0.0,
+            return_volatility_annual_pct=0.0,
+        )
+
+    pnl_series = [b.pnl_per_contract for b in bars]
+    # Daily returns ($ change between consecutive bars)
+    daily_returns: list[float] = []
+    for i in range(1, len(pnl_series)):
+        daily_returns.append(pnl_series[i] - pnl_series[i - 1])
+
+    # --- Drawdown ---
+    peak = pnl_series[0]
+    max_dd_dollars = 0.0
+    for v in pnl_series:
+        if v > peak:
+            peak = v
+        dd = peak - v  # current drawdown from peak (positive = drawdown amount)
+        if dd > max_dd_dollars:
+            max_dd_dollars = dd
+    initial_premium_dollars = abs(initial_price) * 100.0
+    max_dd_pct = (max_dd_dollars / initial_premium_dollars * 100.0) if initial_premium_dollars > 0 else 0.0
+
+    # --- Sharpe / Sortino (annualized) ---
+    sharpe = None
+    sortino = None
+    return_vol_annual = 0.0
+    if len(daily_returns) >= 2:
+        mean_r = sum(daily_returns) / len(daily_returns)
+        var = sum((x - mean_r) ** 2 for x in daily_returns) / max(len(daily_returns) - 1, 1)
+        std = math.sqrt(var)
+        if std > 1e-9:
+            sharpe = (mean_r / std) * math.sqrt(252)
+        # Annualized return-vol normalized by initial premium
+        if initial_premium_dollars > 0:
+            return_vol_annual = std / initial_premium_dollars * math.sqrt(252) * 100.0
+
+        # Sortino — downside deviation only
+        downside = [x for x in daily_returns if x < 0]
+        if downside:
+            d_var = sum(x * x for x in downside) / len(downside)
+            d_std = math.sqrt(d_var)
+            if d_std > 1e-9:
+                sortino = (mean_r / d_std) * math.sqrt(252)
+
+    # --- Calmar ratio ---
+    calmar = None
+    if max_dd_dollars > 1e-9 and pnl_series[-1] > 0:
+        # annualized return ≈ final_pnl / days_held × 252 (approx for short holds)
+        days_held = len(bars)
+        annual_pnl = pnl_series[-1] / max(days_held, 1) * 252
+        calmar = annual_pnl / max_dd_dollars
+
+    # --- Win rate / profit factor ---
+    wins = [r for r in daily_returns if r > 0]
+    losses = [r for r in daily_returns if r < 0]
+    win_rate = len(wins) / len(daily_returns) * 100.0 if daily_returns else 0.0
+    gross_gains = sum(wins)
+    gross_losses = abs(sum(losses))
+    profit_factor = (gross_gains / gross_losses) if gross_losses > 1e-9 else None
+    avg_win = (sum(wins) / len(wins)) if wins else 0.0
+    avg_loss = (sum(losses) / len(losses)) if losses else 0.0
+
+    # --- Transaction costs ---
+    cost_total = transaction_cost_pct * abs(initial_price) * 100.0 + fixed_commission_per_contract
+    final_pnl_after_costs = pnl_series[-1] - cost_total
+
+    return BacktestMetrics(
+        sharpe_ratio=round(sharpe, 3) if sharpe is not None else None,
+        sortino_ratio=round(sortino, 3) if sortino is not None else None,
+        calmar_ratio=round(calmar, 3) if calmar is not None else None,
+        max_drawdown_dollars=round(max_dd_dollars, 2),
+        max_drawdown_pct=round(max_dd_pct, 2),
+        win_rate_pct=round(win_rate, 2),
+        profit_factor=round(profit_factor, 3) if profit_factor is not None else None,
+        avg_win=round(avg_win, 2),
+        avg_loss=round(avg_loss, 2),
+        final_pnl_after_costs=round(final_pnl_after_costs, 2),
+        transaction_cost_total=round(cost_total, 2),
+        return_volatility_annual_pct=round(return_vol_annual, 2),
+    )
 
 
 def run_backtest(
@@ -184,6 +323,8 @@ def run_backtest(
     entry_date: str,
     dte_days: int = 30,          # 进场时期权剩余天数
     hold_days: Optional[int] = None,  # 持仓天数; 默认 min(dte_days, len(available))
+    transaction_cost_pct: float = 0.005,    # 0.5% round-trip (NEW)
+    fixed_commission_per_contract: float = 1.30,  # $0.65 × 2 round trip (NEW)
 ) -> BacktestResult:
     """
     对给定 ticker 从 entry_date 进场, 持有 hold_days 或到期, 回放真实价格轨迹.
@@ -281,6 +422,15 @@ def run_backtest(
         ))
 
     final_bar = bars[-1]
+
+    # Compute scientific metrics with transaction-cost adjustment
+    metrics = _compute_metrics(
+        bars,
+        initial_price,
+        transaction_cost_pct=transaction_cost_pct,
+        fixed_commission_per_contract=fixed_commission_per_contract,
+    )
+
     return BacktestResult(
         ticker=ticker,
         strategy_type=strategy_type,
@@ -297,12 +447,16 @@ def run_backtest(
         final_pnl_per_contract=round(final_bar.pnl_per_contract, 2),
         final_pnl_pct=round(final_bar.pnl_pct, 2),
         bars=[asdict(b) for b in bars],
+        metrics=asdict(metrics),
         assumptions={
             "pricing_model": "Black-Scholes (theoretical)",
             "risk_free_rate": RISK_FREE_RATE,
             "sigma_source": "rolling 30-day realized volatility (annualized)",
             "strike_selection": "ATM for single-leg; ATM + 5%-wide for spreads",
             "contract_multiplier": 100,
+            "transaction_cost_pct": transaction_cost_pct,
+            "fixed_commission_per_contract": fixed_commission_per_contract,
+            "annualization_factor": 252,
         },
         data_sources={
             "spot_price_history": "Yahoo Finance 1D OHLCV (100% real)",

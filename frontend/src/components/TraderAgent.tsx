@@ -75,7 +75,11 @@ export default function TraderAgent() {
   const traderError = useAppStore((s) => s.traderError);
   const traderTicker = useAppStore((s) => s.traderTicker);
   const traderHistory = useAppStore((s) => s.traderHistory);
+  const traderSelectedResearchers = useAppStore((s) => s.traderSelectedResearchers);
+  const traderActiveCount = useAppStore((s) => s.traderActiveCount);
   const setTraderMode = useAppStore((s) => s.setTraderMode);
+  const toggleTraderResearcher = useAppStore((s) => s.toggleTraderResearcher);
+  const setTraderSelectedResearchers = useAppStore((s) => s.setTraderSelectedResearchers);
   const runTraderAnalysis = useAppStore((s) => s.runTraderAnalysis);
   const resetTraderAnalysis = useAppStore((s) => s.resetTraderAnalysis);
   const loadTraderHistoryEntry = useAppStore((s) => s.loadTraderHistory);
@@ -84,6 +88,7 @@ export default function TraderAgent() {
 
   const [downloading, setDownloading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSelector, setShowSelector] = useState(false);
 
   // One-time hydration of saved analyses from localStorage
   useEffect(() => {
@@ -207,14 +212,27 @@ export default function TraderAgent() {
           />
         </div>
 
+        {/* Researcher selector */}
+        <ResearcherSelector
+          isOpen={showSelector}
+          onToggleOpen={() => setShowSelector((v) => !v)}
+          selected={traderSelectedResearchers}
+          onToggle={toggleTraderResearcher}
+          onSetAll={(ids) => setTraderSelectedResearchers(ids)}
+          disabled={isRunning}
+          locale={locale}
+        />
+
         <div className="flex items-center justify-between gap-3 pt-2 flex-wrap">
           <div className="text-xs text-[var(--text-2)] flex items-center gap-2 min-w-0 flex-1">
             <span className="font-mono font-bold text-[var(--accent)]">{liveTicker || ticker}</span>
             <span className="text-[var(--line-mid)]">•</span>
             <span className="truncate">
-              {locale === "zh"
-                ? "9 位研究员将分析此股票，最后由投资经理给出决策"
-                : "9 researchers will analyze this ticker, then a Portfolio Manager decides"}
+              {(() => {
+                const n = traderSelectedResearchers.length === 0 ? 9 : traderSelectedResearchers.length;
+                if (locale === "zh") return `${n} 位研究员将分析此股票，最后由投资经理给出决策`;
+                return `${n} researcher${n === 1 ? "" : "s"} will analyze this ticker, then a Portfolio Manager decides`;
+              })()}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -286,7 +304,12 @@ export default function TraderAgent() {
 
       {/* Live phase indicator */}
       {isRunning && (
-        <PhaseIndicator phase={traderPhase} researchersDone={traderResearchers.length} locale={locale} />
+        <PhaseIndicator
+          phase={traderPhase}
+          researchersDone={traderResearchers.length}
+          totalCount={traderActiveCount}
+          locale={locale}
+        />
       )}
 
       {/* Final Manager Decision */}
@@ -403,6 +426,140 @@ function HistoryPanel({
 // Sub-components
 // ============================================================
 
+/**
+ * ResearcherSelector — collapsible card letting the user pick which of the
+ * 9 researchers to run.
+ *
+ * Cost rationale (visible to user): each researcher = ~1 LLM call. Running
+ * 5 instead of 9 saves ~44% of LLM cost. Bull + Bear is the minimum useful
+ * combo (cheapest debate). Empty list = "all" — we prefer that over a
+ * length-9 array so the URL/query stays clean.
+ */
+function ResearcherSelector(props: {
+  isOpen: boolean;
+  onToggleOpen: () => void;
+  selected: string[];           // empty = all
+  onToggle: (id: string) => void;
+  onSetAll: (ids: string[]) => void;
+  disabled: boolean;
+  locale: "zh" | "en";
+}) {
+  const isZh = props.locale === "zh";
+  const ALL_IDS = RESEARCHER_ORDER as readonly string[];
+  const isAll = props.selected.length === 0;
+  const activeCount = isAll ? ALL_IDS.length : props.selected.length;
+
+  const isSelected = (id: string) => isAll || props.selected.includes(id);
+
+  // Researcher metadata (mirrors backend RESEARCHER_SPECS for display)
+  const META: Record<string, { name_en: string; name_zh: string; icon: string; color: string }> = {
+    bull:        { name_en: "Bull",        name_zh: "看多",    icon: "📈", color: "emerald" },
+    bear:        { name_en: "Bear",        name_zh: "看空",    icon: "📉", color: "red" },
+    technical:   { name_en: "Technical",   name_zh: "技术面",  icon: "📊", color: "blue" },
+    fundamental: { name_en: "Fundamental", name_zh: "基本面",  icon: "💼", color: "purple" },
+    market:      { name_en: "Market",      name_zh: "市场",    icon: "🌐", color: "cyan" },
+    industry:    { name_en: "Industry",    name_zh: "行业",    icon: "🏭", color: "amber" },
+    financial:   { name_en: "Financial",   name_zh: "财务",    icon: "🧮", color: "indigo" },
+    news:        { name_en: "News",        name_zh: "新闻",    icon: "📰", color: "rose" },
+    options:     { name_en: "Options",     name_zh: "期权",    icon: "🎯", color: "teal" },
+  };
+
+  const presets: { label_en: string; label_zh: string; ids: string[] }[] = [
+    { label_en: "All 9 (full team)",     label_zh: "全部 9 位",         ids: [] },
+    { label_en: "Bull + Bear only",      label_zh: "仅多空辩论",         ids: ["bull", "bear"] },
+    { label_en: "Stock-focused (5)",     label_zh: "股票专项 (5)",      ids: ["bull", "bear", "technical", "fundamental", "news"] },
+    { label_en: "Options-focused (4)",   label_zh: "期权专项 (4)",      ids: ["bull", "bear", "options", "news"] },
+  ];
+
+  return (
+    <div className={`rounded-2xl border ${props.isOpen ? "border-violet-300 bg-violet-50/40" : "border-[var(--line-soft)] bg-white"} transition-all`}>
+      <button
+        onClick={props.onToggleOpen}
+        disabled={props.disabled}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--text-2)]">
+            {isZh ? "选择研究员" : "Select Researchers"}
+          </span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
+            {activeCount}/{ALL_IDS.length}
+          </span>
+          {!isAll && (
+            <span className="text-[9.5px] text-violet-700 italic">
+              {isZh ? "已自定义 · 节省 LLM 成本" : "custom · saves LLM cost"}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-[var(--text-2)] transition-transform ${props.isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {props.isOpen && (
+        <div className="px-4 pb-4 pt-2 border-t border-violet-200 space-y-3 anim-fade-up">
+          {/* Presets */}
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => {
+              const isActive = isAll
+                ? p.ids.length === 0
+                : p.ids.length === props.selected.length && p.ids.every((x) => props.selected.includes(x));
+              return (
+                <button
+                  key={p.label_en}
+                  onClick={() => !props.disabled && props.onSetAll(p.ids)}
+                  disabled={props.disabled}
+                  className={`text-[10.5px] font-semibold px-2.5 py-1 rounded-full transition-all cursor-pointer disabled:cursor-not-allowed ${
+                    isActive
+                      ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-sm"
+                      : "bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:border-violet-400 hover:text-violet-600"
+                  }`}
+                >
+                  {isZh ? p.label_zh : p.label_en}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Individual researcher checkboxes */}
+          <div className="grid grid-cols-3 gap-1.5">
+            {ALL_IDS.map((id) => {
+              const m = META[id];
+              const checked = isSelected(id);
+              return (
+                <button
+                  key={id}
+                  onClick={() => !props.disabled && props.onToggle(id)}
+                  disabled={props.disabled}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] transition-all cursor-pointer disabled:cursor-not-allowed text-left ${
+                    checked
+                      ? "bg-white border-violet-300 shadow-sm"
+                      : "bg-gray-50 border-gray-200 opacity-50 hover:opacity-80"
+                  }`}
+                >
+                  <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                    checked ? "bg-violet-500 border-violet-500" : "bg-white border-gray-300"
+                  }`}>
+                    {checked && <span className="text-white text-[8px] font-bold">✓</span>}
+                  </span>
+                  <span className="text-base shrink-0">{m.icon}</span>
+                  <span className={`font-semibold truncate ${checked ? "text-[var(--text-0)]" : "text-[var(--text-2)]"}`}>
+                    {isZh ? m.name_zh : m.name_en}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {!isAll && props.selected.length > 0 && !props.selected.includes("bull") && !props.selected.includes("bear") && (
+            <div className="text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+              {isZh ? "提示：未选 Bull/Bear，将跳过辩论环节" : "Note: Bull/Bear not selected — debate phase will be skipped"}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModePill(props: {
   active: boolean;
   disabled: boolean;
@@ -448,16 +605,17 @@ function ModePill(props: {
   );
 }
 
-function PhaseIndicator(props: { phase: string; researchersDone: number; locale: "zh" | "en" }) {
+function PhaseIndicator(props: { phase: string; researchersDone: number; totalCount: number; locale: "zh" | "en" }) {
+  const total = Math.max(1, props.totalCount);  // avoid div-by-zero
   const labels: Record<string, string> = {
     gathering: t("trader.gathering", props.locale),
-    research: `${t("trader.researchPhase", props.locale)} (${props.researchersDone}/9)`,
+    research: `${t("trader.researchPhase", props.locale)} (${props.researchersDone}/${total})`,
     debate: props.locale === "zh" ? "看多/看空交叉辩论中..." : "Bull/Bear cross-examining...",
     manager: t("trader.managerPhase", props.locale),
   };
   const pct =
     props.phase === "gathering" ? 5 :
-    props.phase === "research" ? 5 + (props.researchersDone / 9) * 70 :
+    props.phase === "research" ? 5 + (props.researchersDone / total) * 70 :
     props.phase === "debate" ? 82 :
     props.phase === "manager" ? 92 : 0;
 
