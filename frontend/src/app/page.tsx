@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Check, Star, Home as HomeIcon } from "lucide-react";
 import TickerSearch from "@/components/TickerSearch";
 import MarketDashboard from "@/components/MarketDashboard";
+import CompanyProfile from "@/components/CompanyProfile";
 import MarketForecast from "@/components/MarketForecast";
 import MarketIntel from "@/components/MarketIntel";
 import IVTermStructure from "@/components/IVTermStructure";
@@ -273,6 +274,9 @@ export default function Home() {
               <div className="space-y-6">
                 {marketData ? (
                   <>
+                    {/* Intro card — shown first so users learn "who is this company"
+                        before diving into prices and Greeks. Auto-hides for ETFs. */}
+                    <CompanyProfile />
                     <MarketDashboard />
                     <VolatilityRankPanel />
                     <EarningsMovePanel />

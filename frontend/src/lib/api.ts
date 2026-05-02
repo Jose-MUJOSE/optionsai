@@ -21,6 +21,91 @@ export class InvalidTickerError extends Error {
   }
 }
 
+/** Company profile data shown in the dashboard intro card.
+ *  All numeric fields are nullable: Yahoo's quoteSummary returns sparse
+ *  data depending on the ticker. The UI handles missing values gracefully. */
+export interface CompanyProfile {
+  ticker: string;
+  is_etf: boolean;
+  quote_type: string | null;
+
+  // Identity
+  long_name: string | null;
+  short_name: string | null;
+  exchange: string | null;
+  currency: string | null;
+  logo_url: string | null;
+
+  // Classification
+  sector: string | null;
+  industry: string | null;
+  country: string | null;
+  city: string | null;
+  state: string | null;
+  address1: string | null;
+  phone: string | null;
+  website: string | null;
+  full_time_employees: number | null;
+
+  // Valuation
+  market_cap: number | null;
+  enterprise_value: number | null;
+  trailing_pe: number | null;
+  forward_pe: number | null;
+  price_to_book: number | null;
+  price_to_sales_ttm: number | null;
+  ev_to_ebitda: number | null;
+  peg_ratio: number | null;
+  dividend_yield: number | null;
+  payout_ratio: number | null;
+
+  // Financials
+  revenue_ttm: number | null;
+  ebitda: number | null;
+  net_income_ttm: number | null;
+  free_cash_flow: number | null;
+  operating_cash_flow: number | null;
+  total_cash: number | null;
+  total_debt: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  profit_margin: number | null;
+  return_on_equity: number | null;
+  return_on_assets: number | null;
+  debt_to_equity: number | null;
+  current_ratio: number | null;
+  revenue_growth_yoy: number | null;
+  earnings_growth_yoy: number | null;
+
+  // Market metrics
+  beta: number | null;
+  shares_outstanding: number | null;
+  float_shares: number | null;
+  current_price: number | null;
+  fifty_two_week_high: number | null;
+  fifty_two_week_low: number | null;
+  fifty_day_avg: number | null;
+  two_hundred_day_avg: number | null;
+
+  long_business_summary: string | null;
+}
+
+export async function fetchCompanyProfile(ticker: string): Promise<CompanyProfile> {
+  const res = await fetch(`${API_URL}/api/company-profile/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    if (res.status === 422 && err?.detail?.code === "INVALID_TICKER") {
+      throw new InvalidTickerError(
+        err.detail.message_en || "Invalid ticker",
+        err.detail.message_zh || "无效股票代码",
+      );
+    }
+    const detail = typeof err.detail === "string" ? err.detail : (err.detail?.message_en ?? res.statusText);
+    throw new Error(detail || "Failed to fetch company profile");
+  }
+  return res.json();
+}
+
 export async function fetchMarketData(ticker: string): Promise<MarketData> {
   const res = await fetch(`${API_URL}/api/market-data/${ticker}`);
   if (!res.ok) {

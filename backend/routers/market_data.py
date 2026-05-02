@@ -49,6 +49,25 @@ async def get_market_data(ticker: str):
         raise HTTPException(status_code=400, detail=f"Failed to fetch data for {ticker}: {str(e)}")
 
 
+@router.get("/company-profile/{ticker}")
+async def get_company_profile(ticker: str):
+    """Aggregate company profile for the dashboard intro card.
+
+    Returns sector / industry / employees / market cap / P/E / P/B / margins /
+    business summary in a single payload. ETF tickers are detected and
+    flagged via `is_etf=true` so the frontend can hide the card cleanly.
+    """
+    from backend.services.company_profile import fetch_company_profile
+
+    ticker = _ensure_us_ticker(ticker)
+    try:
+        return await fetch_company_profile(_fetcher, ticker)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch company profile for {ticker}: {e}")
+
+
 @router.get("/expirations/{ticker}")
 async def get_expirations(ticker: str):
     """获取所有可用到期日"""

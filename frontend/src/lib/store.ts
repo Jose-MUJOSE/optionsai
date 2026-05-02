@@ -9,7 +9,7 @@ import type {
   TrendExpectation,
   ChatMessage,
 } from "@/types";
-import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent } from "./api";
+import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent, fetchCompanyProfile, type CompanyProfile } from "./api";
 import type { ForecastItem, MarketIntelResponse, OptionsSnapshot, IVTermItem, OHLCVBar, FullOptionsChain, ShortDataResponse, EarningsMovesResponse, GEXResponse, UnusualFlowResponse, ResearcherResult, ManagerDecision, TraderMode } from "./api";
 
 /** A completed Trader Agent analysis saved for re-viewing later. */
@@ -206,6 +206,11 @@ interface AppState {
   fetchGEX: (ticker: string, expiration: string) => Promise<void>;
   fetchUnusualFlow: (ticker: string, expiration: string) => Promise<void>;
   setAgentStatus: (status: "idle" | "researcher" | "analyst" | "verifier" | "verified" | "retry") => void;
+
+  // Company profile (dashboard intro card)
+  companyProfile: CompanyProfile | null;
+  isCompanyProfileLoading: boolean;
+  fetchCompanyProfile: (ticker: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -278,6 +283,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   agentStatus: "idle" as "idle" | "researcher" | "analyst" | "verifier" | "verified" | "retry",
 
+  // Company profile (auto-fetched on every searchTicker)
+  companyProfile: null as CompanyProfile | null,
+  isCompanyProfileLoading: false,
+
   // Trader Agent — initial state
   traderTicker: null,
   traderMode: "stock" as TraderMode,
@@ -326,6 +335,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().fetchOHLCV(ticker, "1y");
       get().fetchShortData(ticker);
       get().fetchEarningsMoves(ticker);
+      get().fetchCompanyProfile(ticker);
       const selectedExp = get().selectedExpiration;
       if (selectedExp) {
         get().fetchOptionsSnapshot(ticker, selectedExp);
@@ -460,6 +470,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       // Quietly leave stale state; UI renders a "no earnings data" slot
       set({ isEarningsMovesLoading: false });
+    }
+  },
+
+  fetchCompanyProfile: async (ticker: string) => {
+    // Clear any stale profile from a previous ticker before showing the loader,
+    // otherwise the user briefly sees the old company while the new one fetches.
+    set({ companyProfile: null, isCompanyProfileLoading: true });
+    try {
+      const data = await fetchCompanyProfile(ticker);
+      set({ companyProfile: data, isCompanyProfileLoading: false });
+    } catch {
+      // Quiet failure: the card just disappears. We already surface ticker
+      // validation errors via the search input's own error banner.
+      set({ companyProfile: null, isCompanyProfileLoading: false });
     }
   },
 
@@ -740,6 +764,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedExpiration: null,
       selectedTrend: null,
       chatMessages: [],
+      companyProfile: null,
     });
   },
   setLocale: (locale: Locale) => {
