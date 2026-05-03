@@ -20,6 +20,9 @@ type GroupKey = keyof typeof TICKER_GROUPS;
 // Client-side mirror of backend US validation. Catches obvious bad input
 // before round-tripping to the API.
 const US_TICKER_RE = /^[A-Z][A-Z0-9]{0,4}(\.[AB])?$/;
+const CN_SS_RE = /^\d{6}\.SS$/;     // Shanghai A-shares (e.g. 600519.SS)
+const CN_SZ_RE = /^\d{6}\.SZ$/;     // Shenzhen A-shares (e.g. 000001.SZ)
+const HK_RE = /^\d{4,5}\.HK$/;       // Hong Kong stocks (e.g. 0700.HK)
 
 interface TickerSearchProps {
   showChips?: boolean;
@@ -31,25 +34,21 @@ export default function TickerSearch({ showChips = true }: TickerSearchProps) {
   const [clientError, setClientError] = useState<string | null>(null);
   const { searchTicker, isLoadingMarket, marketData, marketError, locale } = useAppStore();
 
-  // Local-format check: covers the obvious cases (suffixes like .HK, =F, -)
-  // and gives instant feedback before hitting the network.
+  // Local-format check: covers the obvious cases (suffixes like =F, -, ^)
+  // and gives instant feedback before hitting the network. We accept US,
+  // A-share, and HK formats — non-options markets just have their options
+  // features auto-disabled downstream.
   const validateLocally = (raw: string): string | null => {
     const t = raw.trim().toUpperCase();
     if (!t) return locale === "zh" ? "请输入股票代码" : "Please enter a ticker";
-    if (t.includes(".")) {
-      const suffix = t.split(".", 2)[1];
-      if (suffix === "SS" || suffix === "SZ") {
-        return locale === "zh"
-          ? "暂不支持 A 股（无个股期权）。请输入美股代码，如 AAPL、TSLA。"
-          : "A-shares not supported (no individual stock options). Enter a US ticker like AAPL.";
-      }
-      if (suffix === "HK") {
-        return locale === "zh" ? "暂不支持港股，请输入美股代码。" : "HK stocks not supported. Enter a US ticker.";
-      }
-      if (suffix !== "A" && suffix !== "B") {
-        return locale === "zh" ? `无法识别的代码后缀 .${suffix}` : `Unrecognized suffix .${suffix}`;
-      }
+
+    // Accept A-shares (Shanghai/Shenzhen) and HK explicitly. These formats
+    // pass validation; options-related views will be disabled by the store
+    // based on `marketData.expirations.length === 0`.
+    if (CN_SS_RE.test(t) || CN_SZ_RE.test(t) || HK_RE.test(t) || US_TICKER_RE.test(t)) {
+      return null;
     }
+
     if (t.includes("=")) {
       return locale === "zh"
         ? "暂不支持期货/外汇代码。"
@@ -57,20 +56,23 @@ export default function TickerSearch({ showChips = true }: TickerSearchProps) {
     }
     if (t.includes("-")) {
       return locale === "zh"
-        ? "暂不支持加密货币对（无期权市场）。"
-        : "Crypto pairs not supported (no options market).";
+        ? "暂不支持加密货币对。"
+        : "Crypto pairs not supported.";
     }
     if (t.startsWith("^")) {
       return locale === "zh"
-        ? "指数无可交易期权，请改用对应 ETF（如 SPY、QQQ、DIA）。"
+        ? "指数代码无可交易期权，请改用对应 ETF（如 SPY、QQQ、DIA）。"
         : "Index symbols have no tradable options. Use the corresponding ETF (SPY, QQQ, DIA).";
     }
-    if (!US_TICKER_RE.test(t)) {
+    if (t.includes(".")) {
+      const suffix = t.split(".", 2)[1];
       return locale === "zh"
-        ? "请输入 1-5 个字母的美股代码"
-        : "Enter a 1-5 letter US ticker";
+        ? `无法识别的代码后缀「.${suffix}」。请输入美股（AAPL）、A股（600519.SS）或港股（0700.HK）。`
+        : `Unrecognized suffix .${suffix}. Use US (AAPL), A-share (600519.SS), or HK (0700.HK).`;
     }
-    return null;
+    return locale === "zh"
+      ? "代码格式错误。美股 1-5 字母、A股 6 位数字+.SS/.SZ、港股 4-5 位数字+.HK。"
+      : "Invalid format. US: 1-5 letters; A-share: 6 digits+.SS/.SZ; HK: 4-5 digits+.HK.";
   };
 
   const submit = (raw: string) => {
@@ -106,7 +108,7 @@ export default function TickerSearch({ showChips = true }: TickerSearchProps) {
             setInput(e.target.value.toUpperCase());
             if (clientError) setClientError(null);
           }}
-          placeholder={locale === "zh" ? "输入美股代码（如 AAPL、TSLA）" : "Enter US ticker (AAPL, TSLA, ...)"}
+          placeholder={locale === "zh" ? "美股 AAPL / A股 600519.SS / 港股 0700.HK" : "US: AAPL · A-share: 600519.SS · HK: 0700.HK"}
           className={`w-full pl-11 pr-11 py-2.5 bg-white border rounded-full text-[var(--text-0)] placeholder-[var(--text-3)] text-sm focus:outline-none focus:ring-4 transition-all shadow-[var(--shadow-sm)] ${
             displayError
               ? "border-red-400 focus:border-red-500 focus:ring-red-100"

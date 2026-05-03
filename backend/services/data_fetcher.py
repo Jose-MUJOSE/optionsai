@@ -2065,27 +2065,44 @@ class DataFetcher:
         """
         一次性获取 Ticker 的所有市场数据
         用于 GET /api/market-data/{ticker}
+
+        Resilient to non-US tickers (A-shares, HK): if IV/options/expirations
+        fetches fail (no chain available), we return zeros for those fields so
+        the stock-research half of the dashboard still renders. The frontend
+        infers options availability from the empty `expirations` list.
         """
         ticker = ticker.upper().strip()
 
-        # 并行获取各项数据
+        # Spot price + HV are available for all markets supported by Yahoo.
         spot_data = await self.get_spot_price(ticker)
         hv_data = await self.get_historical_volatility(ticker)
-        iv_data = await self.get_iv_metrics(ticker)
-        earnings = await self.get_earnings_date(ticker)
-        expirations = await self.get_expirations(ticker)
 
-        # Prefer the HV that get_iv_metrics computed alongside the real HV rank
-        # (same price series); fall back to the standalone HV reading.
+        # IV / expirations / earnings come from the options chain or a
+        # quoteSummary module that may not exist for non-US tickers. Treat
+        # any failure as "no options data" rather than failing the whole
+        # request — the dashboard still has price, candles, financials, etc.
+        try:
+            iv_data = await self.get_iv_metrics(ticker)
+        except Exception:
+            iv_data = {}
+        try:
+            earnings = await self.get_earnings_date(ticker)
+        except Exception:
+            earnings = None
+        try:
+            expirations = await self.get_expirations(ticker)
+        except Exception:
+            expirations = []
+
         hv_30 = iv_data.get("hv_30") or hv_data.get("hv_30", 0.0)
 
         return {
             "ticker": ticker,
             "spot_price": spot_data["spot_price"],
             "change_pct": spot_data["change_pct"],
-            "iv_current": iv_data["iv_current"],
-            "iv_rank": iv_data["iv_rank"],
-            "iv_percentile": iv_data["iv_percentile"],
+            "iv_current": iv_data.get("iv_current", 0.0),
+            "iv_rank": iv_data.get("iv_rank", 0.0),
+            "iv_percentile": iv_data.get("iv_percentile", 0.0),
             "hv_30": hv_30,
             "hv_rank": iv_data.get("hv_rank", 50.0),
             "hv_percentile": iv_data.get("hv_percentile", 50.0),

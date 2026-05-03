@@ -269,9 +269,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   topPickAnalysis: "",
   isTopPickLoading: false,
 
-  locale: (typeof window !== "undefined"
-    ? ((window.localStorage.getItem("optionsai.locale") as Locale | null) ?? "en")
-    : "en") as Locale,
+  // Always start as "en" to keep SSR and client output identical. The actual
+  // user preference is loaded from localStorage by a top-level effect in
+  // page.tsx after the first render — this avoids hydration mismatches.
+  locale: "en" as Locale,
 
   ohlcvData: [],
   isOHLCVLoading: false,

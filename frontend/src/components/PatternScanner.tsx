@@ -85,7 +85,9 @@ export default function PatternScanner() {
   const [catalog, setCatalog] = useState<PatternCatalogItem[]>([]);
   const [selectedPatterns, setSelectedPatterns] = useState<Set<string>>(new Set());
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
-  const [category, setCategory] = useState<CategoryKey>("mag7");
+  // Multi-select universe: user can combine several baskets (e.g. Mag7 + Banks)
+  // and the union is scanned, deduplicated, capped at 30 by the backend.
+  const [selectedCategories, setSelectedCategories] = useState<Set<CategoryKey>>(new Set(["mag7"]));
   const [customTickers, setCustomTickers] = useState<string>("");
   const [response, setResponse] = useState<PatternScanResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -99,21 +101,49 @@ export default function PatternScanner() {
       .catch(() => {/* catalog load failure → user just sees empty filter */});
   }, []);
 
+  /** Resolve all selected categories into a deduplicated ticker universe.
+   *  Each selected category contributes its tickers; we keep insertion order
+   *  by category-priority but dedupe so a ticker that appears in Mag7 AND
+   *  S&P50 only runs once. The backend caps at 30. */
   const universe = useMemo(() => {
-    if (category === "watchlist") {
-      return watchlistItems.length > 0
-        ? watchlistItems.map((x) => x.ticker)
-        : CATEGORY_TICKERS.mag7;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (ticker: string) => {
+      const t = ticker.trim().toUpperCase();
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      out.push(t);
+    };
+    for (const key of CATEGORY_ORDER) {
+      if (!selectedCategories.has(key)) continue;
+      if (key === "watchlist") {
+        watchlistItems.forEach((x) => add(x.ticker));
+      } else if (key === "custom") {
+        customTickers
+          .split(/[,\s]+/)
+          .filter(Boolean)
+          .forEach(add);
+      } else {
+        CATEGORY_TICKERS[key].forEach(add);
+      }
     }
-    if (category === "custom") {
-      return customTickers
-        .split(/[,\s]+/)
-        .map((x) => x.trim().toUpperCase())
-        .filter(Boolean)
-        .slice(0, 30);
-    }
-    return CATEGORY_TICKERS[category];
-  }, [category, customTickers, watchlistItems]);
+    return out.slice(0, 30);
+  }, [selectedCategories, customTickers, watchlistItems]);
+
+  const toggleCategory = useCallback((key: CategoryKey) => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+        // Don't allow zero categories — that would scan nothing. Force Mag7
+        // back as a fallback so the Run button always has something to do.
+        if (next.size === 0) next.add("mag7");
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
 
   const togglePattern = useCallback((code: string) => {
     setSelectedPatterns((prev) => {
@@ -270,11 +300,11 @@ export default function PatternScanner() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {CATEGORY_ORDER.map((key) => {
-              const active = category === key;
+              const active = selectedCategories.has(key);
               return (
                 <button
                   key={key}
-                  onClick={() => setCategory(key)}
+                  onClick={() => toggleCategory(key)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                     active
                       ? "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white shadow-[var(--shadow-blue)]"
@@ -286,8 +316,13 @@ export default function PatternScanner() {
               );
             })}
           </div>
+          <div className="mt-1.5 text-[10px] text-[var(--text-3)]">
+            {lang === "zh"
+              ? "可多选；后端最多扫描 30 个去重后的标的"
+              : "Multi-select; backend caps the deduplicated universe at 30 tickers"}
+          </div>
 
-          {category === "custom" && (
+          {selectedCategories.has("custom") && (
             <input
               type="text"
               value={customTickers}

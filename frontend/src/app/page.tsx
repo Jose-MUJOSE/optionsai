@@ -30,6 +30,7 @@ import FinancialsPanel from "@/components/FinancialsPanel";
 import EarningsHistoryPanel from "@/components/EarningsHistoryPanel";
 import AnalystRatingsPanel from "@/components/AnalystRatingsPanel";
 import PatternScanner from "@/components/PatternScanner";
+import MarketNotice from "@/components/MarketNotice";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import Sidebar, { type AppView } from "@/components/Sidebar";
 import Watchlist from "@/components/Watchlist";
@@ -58,10 +59,24 @@ function readStoredWidth(key: string, fallback: number): number {
 }
 
 export default function Home() {
-  const { isChatOpen, marketData, locale, searchTicker, goHome } = useAppStore();
+  const { isChatOpen, marketData, locale, searchTicker, goHome, setLocale } = useAppStore();
   const { items: watchlistItems, add: addToWatchlist, remove: removeFromWatchlist } = useWatchlist();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<AppView>("dashboard");
+
+  // Hydration-safe locale restore. Server always emits "en"; once the client
+  // has mounted we read the user's saved preference from localStorage and
+  // sync it into the store. Same pattern as the sidebar widths below.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("optionsai.locale");
+    if (saved === "zh" || saved === "en") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLocale(saved);
+    }
+    // setLocale is stable from Zustand — safe to omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Click home/logo: clear ticker AND switch to dashboard view. */
   const handleGoHome = useCallback(() => {
@@ -275,22 +290,25 @@ export default function Home() {
               )}
             </header>
 
-            {/* VIEW: Dashboard — STOCK RESEARCH (price, fundamentals, news, flow) */}
+            {/* VIEW: Dashboard — STOCK RESEARCH (price, fundamentals, news, flow).
+                Greeks and unusual options flow live exclusively in Options Research. */}
             {view === "dashboard" && (
               <div className="space-y-6">
                 {marketData ? (
                   <>
+                    {/* Market-aware notice — only renders for A-share / HK tickers,
+                        explaining that options features are unavailable. */}
+                    <MarketNotice />
                     {/* Intro card — shown first so users learn "who is this company"
                         before diving into prices. Auto-hides for ETFs. */}
                     <CompanyProfile />
-                    <MarketDashboard />
+                    <MarketDashboard hideGreeks />
                     <CandlestickChart />
                     <FinancialsPanel />
                     <EarningsHistoryPanel />
                     <AnalystRatingsPanel />
                     <MarketForecast />
                     <MarketIntel />
-                    <UnusualOptionsFlow />
                     <ShortAndFlowPanel />
                   </>
                 ) : (
@@ -299,17 +317,25 @@ export default function Home() {
               </div>
             )}
 
-            {/* VIEW: Options Research (IV, chain, GEX, Greeks) */}
+            {/* VIEW: Options Research (IV, chain, GEX, ATM Greeks, unusual flow).
+                For non-US tickers we show only the MarketNotice — these panels
+                would all error out fetching a non-existent options chain. */}
             {view === "options" && (
               <div className="space-y-6">
                 {marketData ? (
-                  <>
-                    <VolatilityRankPanel />
-                    <EarningsMovePanel />
-                    <IVTermStructure />
-                    <OptionsChain />
-                    <GEXPanel />
-                  </>
+                  marketData.expirations.length === 0 ? (
+                    <MarketNotice />
+                  ) : (
+                    <>
+                      <MarketDashboard />
+                      <VolatilityRankPanel />
+                      <EarningsMovePanel />
+                      <IVTermStructure />
+                      <OptionsChain />
+                      <GEXPanel />
+                      <UnusualOptionsFlow />
+                    </>
+                  )
                 ) : (
                   <EmptyState />
                 )}

@@ -16,19 +16,37 @@ router = APIRouter(tags=["Market Data"])
 _fetcher = DataFetcher()
 
 
-def _ensure_us_ticker(ticker: str) -> str:
-    """Validate ticker is US format. Raises HTTP 422 if not."""
+def _ensure_us_ticker(ticker: str, *, require_options: bool = False) -> str:
+    """Validate ticker format and (optionally) options-market availability.
+
+    Raises HTTP 422 with a bilingual message when the ticker is invalid,
+    or when require_options=True and the ticker's market has no listed options
+    (A-shares and HK stocks pass format validation but have no US-style chain).
+    """
     t = ticker.upper().strip()
     result = validate_us_ticker(t)
     if not result.valid:
-        # Use HTTP 422 (Unprocessable Entity) so frontend can distinguish
-        # validation errors from "ticker exists but data fetch failed".
         raise HTTPException(
             status_code=422,
             detail={
                 "code": "INVALID_TICKER",
                 "message_en": result.reason_en,
                 "message_zh": result.reason_zh,
+            },
+        )
+    if require_options and not result.has_options:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "NO_OPTIONS_MARKET",
+                "message_en": (
+                    "A-shares and Hong Kong stocks have no individual options chain. "
+                    "Options features are US-only — please switch to a US ticker."
+                ),
+                "message_zh": (
+                    "A 股和港股没有个股期权数据。"
+                    "期权相关功能仅支持美股，请切换至美股代码（如 AAPL、TSLA）。"
+                ),
             },
         )
     return t
@@ -221,7 +239,7 @@ async def get_financials(ticker: str):
 @router.get("/expirations/{ticker}")
 async def get_expirations(ticker: str):
     """获取所有可用到期日"""
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         expirations = await _fetcher.get_expirations(ticker)
         return {"ticker": ticker, "expirations": expirations}
@@ -232,7 +250,7 @@ async def get_expirations(ticker: str):
 @router.get("/iv-term-structure/{ticker}")
 async def get_iv_term_structure(ticker: str):
     """获取所有到期日的 ATM IV，用于 IV 期限结构展示"""
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         spot_data = await _fetcher.get_spot_price(ticker)
         spot = spot_data["spot_price"]
@@ -267,7 +285,7 @@ async def get_options_snapshot(ticker: str, expiration: str):
     当用户切换到期日时前端调用此接口更新仪表盘
     Query params: ?expiration=2026-05-22
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         snapshot = await _fetcher.get_options_snapshot(ticker, expiration)
         return snapshot
@@ -283,7 +301,7 @@ async def get_options_chain(ticker: str, expiration: str):
     """
     获取指定到期日的完整期权链 (含胜率和盈亏平衡点)
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         chain = await _fetcher.get_options_chain(ticker, expiration)
         calls_df = chain["calls"]
@@ -497,7 +515,7 @@ async def get_gex(ticker: str, expiration: str):
     真实: OI × gamma × 100 × spot² × 0.01 (百万美元) 直接从期权链计算。
     估算: "经销商净空 calls, 净多 puts" 是业内惯例, 真实 dealer positioning 不公开。
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         return await _fetcher.get_gamma_exposure(ticker, expiration)
     except Exception as e:
@@ -513,7 +531,7 @@ async def get_earnings_moves(ticker: str, lookback_quarters: int = 8):
       - 当前 implied move: 当前 ATM 跨式 / spot (真实期权链)
       - 历史 implied move: 需付费历史期权数据，明确不展示
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         return await _fetcher.get_earnings_moves(ticker, lookback_quarters)
     except Exception as e:
@@ -537,7 +555,7 @@ async def get_unusual_flow(ticker: str, expiration: str = ""):
 
     返回: 按 vol/OI 倒序的异动合约列表
     """
-    ticker = ticker.upper().strip()
+    ticker = _ensure_us_ticker(ticker, require_options=True)
     try:
         # 若未指定 expiration, 选最近的 30-45 DTE
         if not expiration:

@@ -18,7 +18,13 @@ function StatCard({ label, value, suffix, color }: {
   );
 }
 
-export default function MarketDashboard() {
+interface MarketDashboardProps {
+  /** When true, hide the ATM Greeks table (used in stock-research view).
+   *  Greeks are still rendered in the options-research view. */
+  hideGreeks?: boolean;
+}
+
+export default function MarketDashboard({ hideGreeks = false }: MarketDashboardProps = {}) {
   const { marketData, marketError, locale, optionsSnapshot, isSnapshotLoading, selectedExpiration } = useAppStore();
 
   // Snapshot of wall-clock time, captured lazily on mount.
@@ -122,8 +128,8 @@ export default function MarketDashboard() {
         <div className="text-xs text-gray-500 max-w-sm text-right">{ivAdvice}</div>
       </div>
 
-      {/* Row 2: ATM Greeks panel (only shown when snapshot loaded) */}
-      {optionsSnapshot && (
+      {/* Row 2: ATM Greeks panel (only shown when snapshot loaded AND not hidden) */}
+      {optionsSnapshot && !hideGreeks && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 anim-fade-up">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
