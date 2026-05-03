@@ -38,3 +38,7 @@ Thumbs.db
 # Claude Code IDE settings (may contain API keys in allowed commands)
 .claude/
 backend/data/*.db
+
+# Local dev artifacts
+_backup_v1_pre_redesign/
+frontend/src/app/design/

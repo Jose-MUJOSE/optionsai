@@ -10,47 +10,52 @@
 :root {
   /* Canvas — cool-tinted whites so blue reads harmonious */
   --bg-0: #ffffff;        /* pure white */
-  --bg-1: #f5f8ff;        /* app canvas — faint blue-white */
-  --bg-2: #eef3fd;        /* recessed blue-tinted */
-  --bg-3: #e3ebfa;        /* raised blue-tinted */
+  --bg-1: #f7faff;        /* app canvas — faint blue-white */
+  --bg-2: #eef3fc;        /* recessed blue-tinted */
+  --bg-3: #e3ebf9;        /* raised blue-tinted */
 
   /* Lines — indigo-tinted so dividers echo the blue voice */
-  --line-soft: rgba(45, 76, 221, 0.08);
-  --line-mid:  rgba(45, 76, 221, 0.16);
-  --line-hot:  rgba(37, 99, 235, 0.38);
+  --line-soft: rgba(13, 38, 96, 0.08);
+  --line-mid:  rgba(59, 109, 255, 0.18);
+  --line-hot:  rgba(59, 109, 255, 0.45);
 
   /* Text — pushed toward blue-black for visual continuity with accent.
      Secondary/muted tones darkened so nothing is washed-out pale. */
-  --text-0: #0a1a3e;      /* primary — deep navy ink */
+  --text-0: #0a1730;      /* primary — deep navy ink */
   --text-1: #1e3a8a;      /* secondary — royal blue */
-  --text-2: #475569;      /* muted — readable slate (was too light at #64748b) */
+  --text-2: #475569;      /* muted — readable slate */
   --text-3: #64748b;      /* tertiary — still legible on white */
 
-  /* Accent — editorial indigo */
-  --accent:        #2d4cdd;
-  --accent-hot:    #1d3bc7;
-  --accent-bright: #3b5fe6; /* for gradients & sheen */
-  --accent-soft:   rgba(45, 76, 221, 0.12);
-  --accent-ring:   rgba(45, 76, 221, 0.22);
+  /* Accent — electric blue (more saturated, signals "live tool" not "muted SaaS") */
+  --accent:        #3b6dff;
+  --accent-hot:    #1d4dff;
+  --accent-bright: #5b8dff;
+  --accent-deep:   #1d4dff;
+  --accent-soft:   rgba(59, 109, 255, 0.10);
+  --accent-ring:   rgba(59, 109, 255, 0.22);
+  --accent-glow:   rgba(59, 109, 255, 0.18);
 
   --accent-violet: #6d4ee0;
   --accent-cyan:   #0891c4;
   --accent-teal:   #0d9f8a;
-  --accent-amber:  #d97706;
+  --accent-amber:  #f59e0b;
 
   /* Financial semantics */
   --fin-up:        #0a8f5a;
   --fin-up-soft:   rgba(10, 143, 90, 0.10);
   --fin-down:      #d33b4d;
   --fin-down-soft: rgba(211, 59, 77, 0.10);
-  --fin-warn:      #d97706;
+  --fin-warn:      #f59e0b;
+  --fin-live:      #10b981; /* live data indicator — vivid green */
 
-  /* Shadows — blue-tinted so they feel part of the palette */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 68, 0.05), 0 1px 3px rgba(15, 23, 68, 0.04);
-  --shadow-md: 0 6px 18px -6px rgba(24, 39, 110, 0.10), 0 2px 6px -2px rgba(24, 39, 110, 0.05);
-  --shadow-lg: 0 18px 42px -14px rgba(24, 39, 110, 0.16), 0 8px 20px -8px rgba(24, 39, 110, 0.08);
-  --shadow-blue: 0 10px 26px -10px rgba(45, 76, 221, 0.35);
-  --shadow-ring: 0 0 0 1px var(--line-mid);
+  /* Shadows — Stripe-style soft layered depth */
+  --shadow-sm:    0 1px 2px rgba(13, 38, 96, 0.04), 0 1px 3px rgba(13, 38, 96, 0.04);
+  --shadow-md:    0 1px 2px rgba(13, 38, 96, 0.04), 0 8px 24px rgba(13, 38, 96, 0.05);
+  --shadow-lg:    0 2px 4px rgba(13, 38, 96, 0.05), 0 16px 40px rgba(13, 38, 96, 0.08);
+  --shadow-card:  0 1px 2px rgba(13, 38, 96, 0.04), 0 8px 24px rgba(13, 38, 96, 0.05);
+  --shadow-card-hover: 0 2px 4px rgba(13, 38, 96, 0.06), 0 16px 40px rgba(59, 109, 255, 0.14);
+  --shadow-blue:  0 10px 26px -8px rgba(59, 109, 255, 0.35);
+  --shadow-ring:  0 0 0 1px var(--line-mid);
 
   --foreground: var(--text-0);
   --background: var(--bg-1);
