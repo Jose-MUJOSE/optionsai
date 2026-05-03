@@ -1,17 +1,19 @@
 "use client";
 
-import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell, Brain } from "lucide-react";
+import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell, Brain, Sigma, Activity } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 
 export type AppView =
   | "dashboard"
+  | "options"
   | "watchlist"
   | "news"
   | "strategies"
   | "trader"
   | "paper"
   | "scanner"
+  | "patterns"
   | "alerts"
   | "settings";
 
@@ -31,13 +33,15 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
   const compact = width < 190; // collapse labels below this width
 
   const items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string; badge?: string }> = [
-    { id: "dashboard",  icon: LayoutDashboard, label: t("nav.dashboard",  locale) },
-    { id: "trader",     icon: Brain,           label: t("trader.title",   locale), badge: "NEW" },
+    { id: "dashboard",  icon: LayoutDashboard, label: locale === "zh" ? "股票研究" : "Stock Research" },
+    { id: "options",    icon: Sigma,           label: locale === "zh" ? "期权研究" : "Options Research", badge: "NEW" },
+    { id: "trader",     icon: Brain,           label: t("trader.title",   locale) },
     { id: "strategies", icon: Target,          label: t("nav.strategies", locale) },
     { id: "watchlist",  icon: Star,            label: t("nav.watchlist",  locale) },
     { id: "news",       icon: Newspaper,       label: t("nav.news",       locale) },
     { id: "paper",      icon: FolderOpen,      label: locale === "zh" ? "模拟仓位" : "Paper" },
     { id: "scanner",    icon: Radar,           label: locale === "zh" ? "策略扫描器" : "Scanner" },
+    { id: "patterns",   icon: Activity,        label: locale === "zh" ? "形态选股" : "Patterns", badge: "NEW" },
     { id: "alerts",     icon: Bell,            label: locale === "zh" ? "事件提醒" : "Alerts" },
   ];
 

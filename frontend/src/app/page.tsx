@@ -26,6 +26,10 @@ import GEXPanel from "@/components/GEXPanel";
 import UnusualOptionsFlow from "@/components/UnusualOptionsFlow";
 import StrategyScanner from "@/components/StrategyScanner";
 import EventAlerts from "@/components/EventAlerts";
+import FinancialsPanel from "@/components/FinancialsPanel";
+import EarningsHistoryPanel from "@/components/EarningsHistoryPanel";
+import AnalystRatingsPanel from "@/components/AnalystRatingsPanel";
+import PatternScanner from "@/components/PatternScanner";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import Sidebar, { type AppView } from "@/components/Sidebar";
 import Watchlist from "@/components/Watchlist";
@@ -211,13 +215,15 @@ export default function Home() {
                     )}
                   </div>
                   <h1 className="text-2xl font-bold tracking-tight text-[var(--text-0)] mt-1">
-                    {view === "dashboard"  && (marketData ? marketData.ticker : t("nav.dashboard", locale))}
+                    {view === "dashboard"  && (marketData ? marketData.ticker : (locale === "zh" ? "股票研究" : "Stock Research"))}
+                    {view === "options"    && (marketData ? `${marketData.ticker} ${locale === "zh" ? "· 期权" : "· Options"}` : (locale === "zh" ? "期权研究" : "Options Research"))}
                     {view === "watchlist"  && t("watchlist.title", locale)}
                     {view === "news"       && t("news.title", locale)}
                     {view === "strategies" && t("nav.strategies", locale)}
                     {view === "trader"     && t("trader.title", locale)}
                     {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
                     {view === "scanner"    && (locale === "zh" ? "策略扫描器" : "Strategy Scanner")}
+                    {view === "patterns"   && (locale === "zh" ? "形态选股" : "Pattern Scanner")}
                     {view === "alerts"     && (locale === "zh" ? "事件提醒" : "Event Alerts")}
                   </h1>
                 </div>
@@ -262,32 +268,47 @@ export default function Home() {
 
               {/* Search row — full-width on its own line so the input has breathing room
                   and never collides with the title or action pills. */}
-              {(view === "dashboard" || view === "strategies" || view === "trader") && (
+              {(view === "dashboard" || view === "options" || view === "strategies" || view === "trader") && (
                 <div className="w-full max-w-xl">
                   <TickerSearch showChips={false} />
                 </div>
               )}
             </header>
 
-            {/* VIEW: Dashboard */}
+            {/* VIEW: Dashboard — STOCK RESEARCH (price, fundamentals, news, flow) */}
             {view === "dashboard" && (
               <div className="space-y-6">
                 {marketData ? (
                   <>
                     {/* Intro card — shown first so users learn "who is this company"
-                        before diving into prices and Greeks. Auto-hides for ETFs. */}
+                        before diving into prices. Auto-hides for ETFs. */}
                     <CompanyProfile />
                     <MarketDashboard />
-                    <VolatilityRankPanel />
-                    <EarningsMovePanel />
                     <CandlestickChart />
+                    <FinancialsPanel />
+                    <EarningsHistoryPanel />
+                    <AnalystRatingsPanel />
                     <MarketForecast />
                     <MarketIntel />
+                    <UnusualOptionsFlow />
+                    <ShortAndFlowPanel />
+                  </>
+                ) : (
+                  <EmptyState />
+                )}
+              </div>
+            )}
+
+            {/* VIEW: Options Research (IV, chain, GEX, Greeks) */}
+            {view === "options" && (
+              <div className="space-y-6">
+                {marketData ? (
+                  <>
+                    <VolatilityRankPanel />
+                    <EarningsMovePanel />
                     <IVTermStructure />
                     <OptionsChain />
                     <GEXPanel />
-                    <UnusualOptionsFlow />
-                    <ShortAndFlowPanel />
                   </>
                 ) : (
                   <EmptyState />
@@ -327,6 +348,9 @@ export default function Home() {
 
             {/* VIEW: Scanner */}
             {view === "scanner" && <StrategyScanner />}
+
+            {/* VIEW: Pattern Scanner */}
+            {view === "patterns" && <PatternScanner />}
 
             {/* VIEW: Alerts */}
             {view === "alerts" && <EventAlerts />}

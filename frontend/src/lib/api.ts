@@ -90,8 +90,8 @@ export interface CompanyProfile {
   long_business_summary: string | null;
 }
 
-export async function fetchCompanyProfile(ticker: string): Promise<CompanyProfile> {
-  const res = await fetch(`${API_URL}/api/company-profile/${ticker}`);
+export async function fetchCompanyProfile(ticker: string, lang: "en" | "zh" = "en"): Promise<CompanyProfile> {
+  const res = await fetch(`${API_URL}/api/company-profile/${ticker}?lang=${lang}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     if (res.status === 422 && err?.detail?.code === "INVALID_TICKER") {
@@ -102,6 +102,171 @@ export async function fetchCompanyProfile(ticker: string): Promise<CompanyProfil
     }
     const detail = typeof err.detail === "string" ? err.detail : (err.detail?.message_en ?? res.statusText);
     throw new Error(detail || "Failed to fetch company profile");
+  }
+  return res.json();
+}
+
+/** Income-statement row (one quarter or one fiscal year) with growth rates. */
+export interface FinancialRow {
+  period: string;                     // e.g. "2025-09-30"
+  revenue: number | null;
+  gross_profit: number | null;
+  operating_income: number | null;
+  net_income: number | null;
+  gross_margin: number | null;        // fraction (0.42 = 42%)
+  operating_margin: number | null;
+  net_margin: number | null;
+  revenue_yoy: number | null;         // null when not enough history
+  revenue_qoq: number | null;
+  net_income_yoy: number | null;
+  net_income_qoq: number | null;
+}
+
+/** Post-earnings 1-day price move computed by joining announcement date with OHLCV. */
+export interface PostEarningsMove {
+  prev_close: number;
+  earnings_open: number | null;
+  earnings_close: number;
+  pct_close: number | null;           // close-to-close fractional move
+  pct_open: number | null;
+}
+
+/** One earnings announcement. */
+export interface EarningsHistoryItem {
+  date: string | null;                // reported date YYYY-MM-DD
+  quarter: string | null;             // e.g. "2Q2026"
+  eps_actual: number | null;
+  eps_estimate: number | null;
+  eps_surprise_pct: number | null;    // fractional surprise (0.05 = 5%)
+  post_earnings: PostEarningsMove | null;
+}
+
+/** Combined financial-history payload from /api/financials. */
+export interface FinancialsResponse {
+  ticker: string;
+  quarterly: FinancialRow[];
+  annual: FinancialRow[];
+  earnings_history: EarningsHistoryItem[];
+}
+
+export async function fetchFinancials(ticker: string): Promise<FinancialsResponse> {
+  const res = await fetch(`${API_URL}/api/financials/${ticker}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detail = typeof err.detail === "string" ? err.detail : (err.detail?.message_en ?? res.statusText);
+    throw new Error(detail || "Failed to fetch financials");
+  }
+  return res.json();
+}
+
+/** Wall Street consensus block from /api/analyst-ratings. */
+export interface AnalystConsensus {
+  label: string;                          // "Strong Buy" / "Buy" / "Hold" / "Sell"
+  target_mean: number | null;
+  target_median: number | null;
+  target_high: number | null;
+  target_low: number | null;
+  current_price: number | null;
+  upside_pct: number | null;              // (target_mean - current) / current
+  analyst_count: number | null;
+  distribution: {
+    strong_buy: number;
+    buy: number;
+    hold: number;
+    sell: number;
+    strong_sell: number;
+    total: number;
+  };
+}
+
+/** One firm-level rating action with its price target. */
+export interface RatingChange {
+  date: string | null;
+  firm: string | null;
+  from_grade: string | null;
+  to_grade: string | null;
+  action_code: string | null;             // "init" / "main" / "reit" / "up" / "down"
+  action_label: string | null;            // "Initiate" / "Maintain" / "Reiterate" / "Upgrade" / "Downgrade"
+  price_target: number | null;
+  prior_price_target: number | null;
+  price_target_delta_pct: number | null;
+  price_target_action: string | null;     // "Raises" / "Lowers" / "Maintains"
+}
+
+export interface AnalystRatingsResponse {
+  ticker: string;
+  consensus: AnalystConsensus | null;
+  rating_changes: RatingChange[];
+}
+
+/** One detected technical pattern on the latest bar of a ticker. */
+export interface PatternHit {
+  code: string;
+  name_en: string;
+  name_zh: string;
+  direction: "bullish" | "bearish" | "neutral";
+  confidence: number;
+  description_en: string;
+  description_zh: string;
+  triggered_at_index: number;
+}
+
+/** One ticker's scan result with all its detected patterns. */
+export interface PatternScanResult {
+  ticker: string;
+  last_close: number;
+  last_date: number | null;
+  hits: PatternHit[];
+}
+
+export interface PatternScanResponse {
+  results: PatternScanResult[];
+  scanned: number;
+  matched: number;
+}
+
+/** Pattern catalog entry for the filter UI. */
+export interface PatternCatalogItem {
+  code: string;
+  name_en: string;
+  name_zh: string;
+  direction: "bullish" | "bearish" | "neutral";
+}
+
+export async function fetchPatternCatalog(): Promise<{ patterns: PatternCatalogItem[] }> {
+  const res = await fetch(`${API_URL}/api/pattern-catalog`);
+  if (!res.ok) throw new Error("Failed to fetch pattern catalog");
+  return res.json();
+}
+
+export async function runPatternScanner(
+  tickers: string[],
+  patterns: string[] | null = null,
+  directions: ("bullish" | "bearish" | "neutral")[] | null = null,
+): Promise<PatternScanResponse> {
+  const res = await fetch(`${API_URL}/api/pattern-scanner`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tickers,
+      patterns: patterns && patterns.length > 0 ? patterns : null,
+      directions: directions && directions.length > 0 ? directions : null,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detail = typeof err.detail === "string" ? err.detail : res.statusText;
+    throw new Error(detail || "Failed to scan patterns");
+  }
+  return res.json();
+}
+
+export async function fetchAnalystRatings(ticker: string, limit = 25): Promise<AnalystRatingsResponse> {
+  const res = await fetch(`${API_URL}/api/analyst-ratings/${ticker}?limit=${limit}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detail = typeof err.detail === "string" ? err.detail : (err.detail?.message_en ?? res.statusText);
+    throw new Error(detail || "Failed to fetch analyst ratings");
   }
   return res.json();
 }

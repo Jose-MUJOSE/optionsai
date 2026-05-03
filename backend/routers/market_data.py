@@ -4,6 +4,7 @@ GET /api/market-data/{ticker} — 实时行情+环境感知
 GET /api/expirations/{ticker} — 可用到期日列表
 GET /api/options-chain/{ticker} — 指定到期日的完整期权链
 """
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from backend.models.schemas import MarketData, OptionsChain, OptionContract, OptionType
 from backend.services.data_fetcher import DataFetcher
@@ -50,22 +51,171 @@ async def get_market_data(ticker: str):
 
 
 @router.get("/company-profile/{ticker}")
-async def get_company_profile(ticker: str):
+async def get_company_profile(ticker: str, lang: str = "en"):
     """Aggregate company profile for the dashboard intro card.
 
     Returns sector / industry / employees / market cap / P/E / P/B / margins /
     business summary in a single payload. ETF tickers are detected and
     flagged via `is_etf=true` so the frontend can hide the card cleanly.
+
+    Query params:
+      lang: "en" (default) or "zh". When "zh", the long_business_summary is
+            translated via DeepSeek and the translated text is returned in
+            place of the English original. Translations are cached per
+            (text, target_lang) so repeated calls are free.
     """
     from backend.services.company_profile import fetch_company_profile
+    from backend.services.translator import translate_business_summary
 
     ticker = _ensure_us_ticker(ticker)
     try:
-        return await fetch_company_profile(_fetcher, ticker)
+        profile = await fetch_company_profile(_fetcher, ticker)
+        if lang == "zh" and profile.get("long_business_summary"):
+            translated = await translate_business_summary(profile["long_business_summary"], "zh")
+            profile["long_business_summary"] = translated
+        return profile
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch company profile for {ticker}: {e}")
+
+
+@router.get("/pattern-catalog")
+async def get_pattern_catalog():
+    """Return the full list of supported technical patterns (for the UI's filter)."""
+    from backend.services.pattern_detector import list_pattern_catalog
+    return {"patterns": list_pattern_catalog()}
+
+
+@router.post("/pattern-scanner")
+async def run_pattern_scanner(body: dict):
+    """Scan a list of tickers for technical chart patterns.
+
+    Request:
+      {
+        "tickers":  ["AAPL", "TSLA", ...],
+        "patterns": ["golden_cross", "three_white_soldiers", ...] | null
+                    (null = include any matched pattern),
+        "directions": ["bullish", "bearish", "neutral"] | null
+                      (null = all directions)
+      }
+
+    Response: { "results": [ {ticker, last_close, hits: [PatternHit, ...]}, ... ] }
+
+    Honesty:
+      - Patterns are detected against the LATEST daily bar (with up to 1y of
+        history for context — RSI/MACD/MA need lookback).
+      - We don't claim these are profitable signals — they're just classic
+        chart-pattern definitions. The frontend surfaces a "heuristic" caveat.
+    """
+    import asyncio
+    from dataclasses import asdict
+    from backend.services.pattern_detector import detect_all
+
+    tickers_raw = body.get("tickers") or []
+    tickers = [str(t).upper().strip() for t in tickers_raw if t]
+    tickers = [t for t in tickers if t][:30]  # safety cap
+    if not tickers:
+        raise HTTPException(status_code=400, detail="tickers required")
+
+    pattern_filter_raw = body.get("patterns")
+    pattern_filter: Optional[set[str]] = (
+        set(pattern_filter_raw) if isinstance(pattern_filter_raw, list) and pattern_filter_raw else None
+    )
+    direction_filter_raw = body.get("directions")
+    direction_filter: Optional[set[str]] = (
+        set(direction_filter_raw) if isinstance(direction_filter_raw, list) and direction_filter_raw else None
+    )
+
+    async def _scan_one(ticker: str) -> Optional[dict]:
+        try:
+            ohlcv = await _fetcher.get_ohlcv(ticker, range="1y", interval="1d")
+            bars = ohlcv.get("bars") or []
+            if len(bars) < 30:
+                return None
+            hits = detect_all(bars)
+            if pattern_filter is not None:
+                hits = [h for h in hits if h.code in pattern_filter]
+            if direction_filter is not None:
+                hits = [h for h in hits if h.direction in direction_filter]
+            if not hits:
+                return None
+            return {
+                "ticker": ticker,
+                "last_close": bars[-1]["close"],
+                "last_date": ohlcv.get("bars", [{}])[-1].get("time"),
+                "hits": [asdict(h) for h in hits],
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[_scan_one(t) for t in tickers])
+    matches = [r for r in results if r is not None]
+    matches.sort(
+        key=lambda r: max((h["confidence"] for h in r["hits"]), default=0),
+        reverse=True,
+    )
+    return {"results": matches, "scanned": len(tickers), "matched": len(matches)}
+
+
+@router.get("/analyst-ratings/{ticker}")
+async def get_analyst_ratings(ticker: str, limit: int = 25):
+    """Per-firm rating changes (with price targets) + Wall Street consensus.
+
+    Returns:
+      - consensus: target mean/high/low, upside %, rating distribution,
+                   consensus label (Strong Buy / Buy / Hold / Sell)
+      - rating_changes: latest N firm-level actions with price target and delta
+
+    Yahoo's free tier exposes individual firm price targets in
+    `upgradeDowngradeHistory` despite earlier assumptions. Use `limit` to cap
+    the table size — the underlying response can be 900+ entries for AAPL etc.
+    """
+    from backend.services.analyst_ratings import fetch_analyst_ratings
+
+    ticker = _ensure_us_ticker(ticker)
+    try:
+        return await fetch_analyst_ratings(_fetcher, ticker, limit=limit)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch analyst ratings for {ticker}: {e}")
+
+
+@router.get("/financials/{ticker}")
+async def get_financials(ticker: str):
+    """Quarterly + annual income-statement history and earnings history.
+
+    Returns:
+      - quarterly: last ~4 quarters (revenue, gross profit, op income, net income,
+                   margins) with QoQ and YoY growth attached
+      - annual:    last ~4 fiscal years with YoY growth
+      - earnings_history: last ~4 earnings announcements with EPS surprise %
+                          and post-earnings 1-day price change
+
+    Post-earnings price changes are computed by joining each earnings date
+    with the daily OHLCV series (1-year window).
+    """
+    from backend.services.financials import fetch_financials
+
+    ticker = _ensure_us_ticker(ticker)
+    try:
+        # Reuse the OHLCV we'd fetch anyway for the candlestick chart so we can
+        # compute post-earnings price moves without an extra API call when the
+        # user's already loaded the dashboard.
+        bars: list[dict] = []
+        try:
+            ohlcv = await _fetcher.get_ohlcv(ticker, range="1y", interval="1d")
+            bars = ohlcv.get("bars") or []
+        except Exception:
+            # OHLCV failure shouldn't block the financial statements — earnings
+            # rows just come back without post_earnings price moves.
+            bars = []
+        return await fetch_financials(_fetcher, ticker, ohlcv_bars=bars)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch financials for {ticker}: {e}")
 
 
 @router.get("/expirations/{ticker}")

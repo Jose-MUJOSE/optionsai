@@ -9,7 +9,7 @@ import type {
   TrendExpectation,
   ChatMessage,
 } from "@/types";
-import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent, fetchCompanyProfile, type CompanyProfile } from "./api";
+import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent, fetchCompanyProfile, fetchFinancials, fetchAnalystRatings, type CompanyProfile, type FinancialsResponse, type AnalystRatingsResponse } from "./api";
 import type { ForecastItem, MarketIntelResponse, OptionsSnapshot, IVTermItem, OHLCVBar, FullOptionsChain, ShortDataResponse, EarningsMovesResponse, GEXResponse, UnusualFlowResponse, ResearcherResult, ManagerDecision, TraderMode } from "./api";
 
 /** A completed Trader Agent analysis saved for re-viewing later. */
@@ -211,6 +211,16 @@ interface AppState {
   companyProfile: CompanyProfile | null;
   isCompanyProfileLoading: boolean;
   fetchCompanyProfile: (ticker: string) => Promise<void>;
+
+  // Financials (quarterly + annual + earnings history)
+  financials: FinancialsResponse | null;
+  isFinancialsLoading: boolean;
+  fetchFinancials: (ticker: string) => Promise<void>;
+
+  // Analyst ratings (per-firm targets + consensus)
+  analystRatings: AnalystRatingsResponse | null;
+  isAnalystRatingsLoading: boolean;
+  fetchAnalystRatings: (ticker: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -259,7 +269,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   topPickAnalysis: "",
   isTopPickLoading: false,
 
-  locale: "zh" as Locale,
+  locale: (typeof window !== "undefined"
+    ? ((window.localStorage.getItem("optionsai.locale") as Locale | null) ?? "en")
+    : "en") as Locale,
 
   ohlcvData: [],
   isOHLCVLoading: false,
@@ -286,6 +298,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Company profile (auto-fetched on every searchTicker)
   companyProfile: null as CompanyProfile | null,
   isCompanyProfileLoading: false,
+
+  // Financials — quarterly + annual + earnings history
+  financials: null as FinancialsResponse | null,
+  isFinancialsLoading: false,
+
+  // Analyst ratings — consensus + per-firm rating changes
+  analystRatings: null as AnalystRatingsResponse | null,
+  isAnalystRatingsLoading: false,
 
   // Trader Agent — initial state
   traderTicker: null,
@@ -336,6 +356,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().fetchShortData(ticker);
       get().fetchEarningsMoves(ticker);
       get().fetchCompanyProfile(ticker);
+      get().fetchFinancials(ticker);
+      get().fetchAnalystRatings(ticker);
       const selectedExp = get().selectedExpiration;
       if (selectedExp) {
         get().fetchOptionsSnapshot(ticker, selectedExp);
@@ -478,12 +500,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     // otherwise the user briefly sees the old company while the new one fetches.
     set({ companyProfile: null, isCompanyProfileLoading: true });
     try {
-      const data = await fetchCompanyProfile(ticker);
+      // Pass the user's locale so the backend translates the business summary
+      // to Chinese on the fly when locale === "zh". Backend caches by text-hash
+      // so repeated lookups for the same ticker are free.
+      const lang = get().locale;
+      const data = await fetchCompanyProfile(ticker, lang);
       set({ companyProfile: data, isCompanyProfileLoading: false });
     } catch {
       // Quiet failure: the card just disappears. We already surface ticker
       // validation errors via the search input's own error banner.
       set({ companyProfile: null, isCompanyProfileLoading: false });
+    }
+  },
+
+  fetchFinancials: async (ticker: string) => {
+    set({ financials: null, isFinancialsLoading: true });
+    try {
+      const data = await fetchFinancials(ticker);
+      set({ financials: data, isFinancialsLoading: false });
+    } catch {
+      // Quiet failure — the panel renders a "data unavailable" slot.
+      set({ financials: null, isFinancialsLoading: false });
+    }
+  },
+
+  fetchAnalystRatings: async (ticker: string) => {
+    set({ analystRatings: null, isAnalystRatingsLoading: true });
+    try {
+      const data = await fetchAnalystRatings(ticker, 25);
+      set({ analystRatings: data, isAnalystRatingsLoading: false });
+    } catch {
+      set({ analystRatings: null, isAnalystRatingsLoading: false });
     }
   },
 
@@ -765,10 +812,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedTrend: null,
       chatMessages: [],
       companyProfile: null,
+      financials: null,
+      analystRatings: null,
     });
   },
   setLocale: (locale: Locale) => {
     set({ locale });
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("optionsai.locale", locale);
+      } catch {
+        // ignore quota errors
+      }
+    }
     // 切换语言后重新获取 AI 内容
     const { ticker, marketData, strategies } = get();
     if (ticker && marketData) {
@@ -776,6 +832,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       setTimeout(() => {
         get().fetchForecast(ticker);
         get().fetchMarketIntel(ticker);
+        // Re-fetch the company profile so the business summary is rendered in
+        // the new locale (the backend translates the EN summary to ZH on demand).
+        get().fetchCompanyProfile(ticker);
         if (strategies.length > 0) {
           get().fetchTopPickAnalysis();
         }
