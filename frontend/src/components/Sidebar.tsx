@@ -40,7 +40,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
     { id: "watchlist",  icon: Star,            label: t("nav.watchlist",  locale) },
     { id: "news",       icon: Newspaper,       label: t("nav.news",       locale) },
     { id: "paper",      icon: FolderOpen,      label: locale === "zh" ? "模拟仓位" : "Paper" },
-    { id: "scanner",    icon: Radar,           label: locale === "zh" ? "策略扫描器" : "Scanner" },
+    { id: "scanner",    icon: Radar,           label: locale === "zh" ? "期权策略扫描器" : "Options Scanner" },
     { id: "patterns",   icon: Activity,        label: locale === "zh" ? "形态选股" : "Patterns", badge: "NEW" },
     { id: "alerts",     icon: Bell,            label: locale === "zh" ? "事件提醒" : "Alerts" },
   ];

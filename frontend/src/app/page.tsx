@@ -237,7 +237,7 @@ export default function Home() {
                     {view === "strategies" && t("nav.strategies", locale)}
                     {view === "trader"     && t("trader.title", locale)}
                     {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
-                    {view === "scanner"    && (locale === "zh" ? "策略扫描器" : "Strategy Scanner")}
+                    {view === "scanner"    && (locale === "zh" ? "期权策略扫描器" : "Options Strategy Scanner")}
                     {view === "patterns"   && (locale === "zh" ? "形态选股" : "Pattern Scanner")}
                     {view === "alerts"     && (locale === "zh" ? "事件提醒" : "Event Alerts")}
                   </h1>

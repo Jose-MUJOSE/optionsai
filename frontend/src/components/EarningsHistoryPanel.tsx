@@ -44,7 +44,10 @@ export default function EarningsHistoryPanel() {
   const { financials, isFinancialsLoading, locale } = useAppStore();
 
   const items = useMemo<EarningsHistoryItem[]>(() => {
-    return financials?.earnings_history ?? [];
+    const list = financials?.earnings_history ?? [];
+    // Render oldest → newest left-to-right so the user reads time chronologically.
+    // Backend returns newest-first; reverse it here.
+    return [...list].reverse();
   }, [financials]);
 
   if (isFinancialsLoading && !financials) {
@@ -125,8 +128,8 @@ export default function EarningsHistoryPanel() {
         </div>
       </div>
 
-      {/* Card grid — one card per earnings event */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Card row — chronological left→right, 4 across on wide screens */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {items.map((item, idx) => {
           const surprise = item.eps_surprise_pct;
           const move = item.post_earnings?.pct_close ?? null;

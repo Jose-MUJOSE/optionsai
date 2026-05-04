@@ -84,9 +84,24 @@ async def get_company_profile(ticker: str, lang: str = "en"):
     """
     from backend.services.company_profile import fetch_company_profile
     from backend.services.translator import translate_business_summary
+    from backend.services.cn_data import fetch_cn_company_profile, _ticker_to_code
 
     ticker = _ensure_us_ticker(ticker)
     try:
+        # Route to AKShare for A-share tickers — Yahoo's English-only summary
+        # is useless for Chinese stocks, and AKShare gives proper 中文 fields.
+        if _ticker_to_code(ticker):
+            cn_profile = await fetch_cn_company_profile(ticker)
+            if cn_profile:
+                # Add current price from spot endpoint we already use elsewhere.
+                try:
+                    spot = await _fetcher.get_spot_price(ticker)
+                    cn_profile["current_price"] = spot.get("spot_price")
+                except Exception:
+                    pass
+                return cn_profile
+            # If AKShare doesn't have it (rare), continue to Yahoo fallback.
+
         profile = await fetch_company_profile(_fetcher, ticker)
         if lang == "zh" and profile.get("long_business_summary"):
             translated = await translate_business_summary(profile["long_business_summary"], "zh")
@@ -201,35 +216,59 @@ async def get_analyst_ratings(ticker: str, limit: int = 25):
 
 
 @router.get("/financials/{ticker}")
-async def get_financials(ticker: str):
-    """Quarterly + annual income-statement history and earnings history.
+async def get_financials(ticker: str, quarters: int = 8, years: int = 5):
+    """Quarterly + annual income-statement history.
 
-    Returns:
-      - quarterly: last ~4 quarters (revenue, gross profit, op income, net income,
-                   margins) with QoQ and YoY growth attached
-      - annual:    last ~4 fiscal years with YoY growth
-      - earnings_history: last ~4 earnings announcements with EPS surprise %
-                          and post-earnings 1-day price change
+    Routing:
+      - US tickers (AAPL, TSLA, ...)    → SEC EDGAR XBRL (10+ years available)
+      - A-shares (.SS / .SZ)            → AKShare / 东方财富
+      - HK tickers (.HK)                → Yahoo (limited 4 quarters)
+      - EDGAR not found / failed        → fall back to Yahoo (4 quarters)
 
-    Post-earnings price changes are computed by joining each earnings date
-    with the daily OHLCV series (1-year window).
+    Returns 8 quarters + 5 years by default. Earnings-history (EPS surprises +
+    post-earnings 1d move) only available for US tickers via Yahoo and is
+    appended on top of the EDGAR/Yahoo financial rows.
     """
     from backend.services.financials import fetch_financials
+    from backend.services.edgar_financials import fetch_us_financials
+    from backend.services.cn_data import fetch_cn_financials, _ticker_to_code
 
     ticker = _ensure_us_ticker(ticker)
     try:
-        # Reuse the OHLCV we'd fetch anyway for the candlestick chart so we can
-        # compute post-earnings price moves without an extra API call when the
-        # user's already loaded the dashboard.
+        # Route 1: A-share — AKShare gives us 50+ quarters
+        if _ticker_to_code(ticker):
+            cn_result = await fetch_cn_financials(ticker, quarters=quarters, years=years)
+            if cn_result:
+                return cn_result
+            # Fall through to Yahoo if AKShare unavailable
+
+        # Route 2: US ticker — try SEC EDGAR first (best coverage)
+        edgar_result = await fetch_us_financials(ticker, quarters=quarters, years=years)
+        # Always grab Yahoo data for the earnings-history field (EDGAR doesn't
+        # have EPS surprise / post-earnings move). Wrap in try so EDGAR works
+        # even when Yahoo is rate-limited.
         bars: list[dict] = []
         try:
             ohlcv = await _fetcher.get_ohlcv(ticker, range="1y", interval="1d")
             bars = ohlcv.get("bars") or []
         except Exception:
-            # OHLCV failure shouldn't block the financial statements — earnings
-            # rows just come back without post_earnings price moves.
             bars = []
-        return await fetch_financials(_fetcher, ticker, ohlcv_bars=bars)
+        try:
+            yahoo_result = await fetch_financials(_fetcher, ticker, ohlcv_bars=bars)
+        except Exception:
+            yahoo_result = None
+
+        if edgar_result:
+            # Merge: take EDGAR's quarterly + annual, plus Yahoo's earnings_history.
+            edgar_result["earnings_history"] = (
+                (yahoo_result or {}).get("earnings_history") or []
+            )
+            return edgar_result
+
+        # Fallback: Yahoo-only when EDGAR doesn't have this ticker.
+        if yahoo_result:
+            return yahoo_result
+        return {"ticker": ticker, "quarterly": [], "annual": [], "earnings_history": []}
     except HTTPException:
         raise
     except Exception as e:

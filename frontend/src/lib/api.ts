@@ -231,6 +231,8 @@ export interface PatternCatalogItem {
   name_en: string;
   name_zh: string;
   direction: "bullish" | "bearish" | "neutral";
+  description_en?: string;
+  description_zh?: string;
 }
 
 export async function fetchPatternCatalog(): Promise<{ patterns: PatternCatalogItem[] }> {

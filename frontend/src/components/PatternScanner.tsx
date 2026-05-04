@@ -24,56 +24,17 @@ import { useAppStore } from "@/lib/store";
 import { useWatchlist } from "@/lib/watchlist";
 import { fetchPatternCatalog, runPatternScanner } from "@/lib/api";
 import type { PatternCatalogItem, PatternScanResponse } from "@/lib/api";
+import { CATEGORIES, CATEGORY_ORDER, resolveUniverse, type CategoryKey } from "@/lib/tickerUniverse";
 
 type Locale = "zh" | "en";
 
-// Same universe presets as StrategyScanner so users have one mental model.
-type CategoryKey =
-  | "watchlist" | "mag7" | "dow30" | "sp50" | "ndx_top" | "etf_core"
-  | "semiconductors" | "ai_software" | "banks" | "healthcare"
-  | "energy" | "consumer" | "ev_auto" | "biotech" | "china_adr" | "custom";
-
-const CATEGORY_TICKERS: Record<Exclude<CategoryKey, "watchlist" | "custom">, string[]> = {
-  mag7: ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
-  dow30: ["AAPL", "AMGN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS", "GS", "HD", "HON", "IBM", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "PG", "TRV", "UNH", "V", "VZ", "WBA", "WMT"],
-  sp50: ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "BRK.B", "AVGO", "TSLA", "JPM", "LLY", "V", "XOM", "MA", "UNH", "COST", "WMT", "PG", "JNJ", "HD", "ABBV", "NFLX", "BAC", "CRM", "MRK", "CVX", "ORCL", "AMD", "KO"],
-  ndx_top: ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AVGO", "COST", "NFLX", "PEP", "ADBE", "AMD", "CSCO", "TMUS", "CMCSA", "QCOM", "INTU", "TXN", "AMGN", "ISRG", "BKNG", "GILD", "MU"],
-  etf_core: ["SPY", "QQQ", "IWM", "DIA", "VTI", "XLK", "XLF", "XLE", "XLV", "XLY", "XLI", "GLD", "TLT", "ARKK"],
-  semiconductors: ["NVDA", "AVGO", "AMD", "TSM", "QCOM", "INTC", "MU", "AMAT", "LRCX", "ASML", "KLAC", "MRVL", "ON", "ARM"],
-  ai_software: ["MSFT", "GOOGL", "META", "ORCL", "CRM", "ADBE", "PLTR", "NOW", "SNOW", "DDOG", "MDB", "NET", "CRWD"],
-  banks: ["JPM", "BAC", "WFC", "C", "GS", "MS", "BLK", "SCHW", "AXP", "USB", "PNC"],
-  healthcare: ["UNH", "JNJ", "LLY", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD"],
-  energy: ["XOM", "CVX", "COP", "OXY", "SLB", "EOG", "MPC", "PSX", "VLO"],
-  consumer: ["AMZN", "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "TGT", "LOW", "BKNG", "DIS"],
-  ev_auto: ["TSLA", "F", "GM", "RIVN", "LCID", "NIO", "XPEV", "LI", "TM"],
-  biotech: ["AMGN", "GILD", "REGN", "VRTX", "BIIB", "MRNA", "ILMN", "INCY"],
-  china_adr: ["BABA", "PDD", "JD", "NIO", "BIDU", "TME", "BILI", "TCOM"],
+// Visual grouping reused from StrategyScanner
+const GROUP_LABELS: Record<"personal" | "indices" | "sectors" | "themes", { zh: string; en: string }> = {
+  personal: { zh: "个人", en: "Personal" },
+  indices: { zh: "指数与 ETF", en: "Indices & ETFs" },
+  sectors: { zh: "行业板块", en: "Sectors" },
+  themes: { zh: "主题策略", en: "Themes" },
 };
-
-const CATEGORY_LABELS: Record<CategoryKey, { zh: string; en: string }> = {
-  watchlist: { zh: "我的自选", en: "Watchlist" },
-  mag7: { zh: "科技七雄", en: "Magnificent 7" },
-  dow30: { zh: "道指 30", en: "Dow 30" },
-  sp50: { zh: "标普 50", en: "S&P Top 50" },
-  ndx_top: { zh: "纳指领头", en: "Nasdaq Top" },
-  etf_core: { zh: "核心 ETF", en: "Core ETFs" },
-  semiconductors: { zh: "半导体", en: "Semiconductors" },
-  ai_software: { zh: "AI 软件", en: "AI Software" },
-  banks: { zh: "银行金融", en: "Banks" },
-  healthcare: { zh: "医疗健康", en: "Healthcare" },
-  energy: { zh: "能源", en: "Energy" },
-  consumer: { zh: "消费", en: "Consumer" },
-  ev_auto: { zh: "电车汽车", en: "EV & Auto" },
-  biotech: { zh: "生物技术", en: "Biotech" },
-  china_adr: { zh: "中概股", en: "China ADRs" },
-  custom: { zh: "自定义", en: "Custom" },
-};
-
-const CATEGORY_ORDER: CategoryKey[] = [
-  "watchlist", "mag7", "ndx_top", "sp50", "dow30", "etf_core",
-  "semiconductors", "ai_software", "banks", "healthcare",
-  "energy", "consumer", "ev_auto", "biotech", "china_adr", "custom",
-];
 
 type DirectionFilter = "all" | "bullish" | "bearish" | "neutral";
 
@@ -101,34 +62,25 @@ export default function PatternScanner() {
       .catch(() => {/* catalog load failure → user just sees empty filter */});
   }, []);
 
-  /** Resolve all selected categories into a deduplicated ticker universe.
-   *  Each selected category contributes its tickers; we keep insertion order
-   *  by category-priority but dedupe so a ticker that appears in Mag7 AND
-   *  S&P50 only runs once. The backend caps at 30. */
+  /** Resolve selected categories → deduplicated ticker universe (capped at 30). */
   const universe = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    const add = (ticker: string) => {
-      const t = ticker.trim().toUpperCase();
-      if (!t || seen.has(t)) return;
-      seen.add(t);
-      out.push(t);
-    };
-    for (const key of CATEGORY_ORDER) {
-      if (!selectedCategories.has(key)) continue;
-      if (key === "watchlist") {
-        watchlistItems.forEach((x) => add(x.ticker));
-      } else if (key === "custom") {
-        customTickers
-          .split(/[,\s]+/)
-          .filter(Boolean)
-          .forEach(add);
-      } else {
-        CATEGORY_TICKERS[key].forEach(add);
-      }
-    }
-    return out.slice(0, 30);
+    return resolveUniverse(
+      selectedCategories,
+      watchlistItems.map((x) => x.ticker),
+      customTickers,
+      30,
+    );
   }, [selectedCategories, customTickers, watchlistItems]);
+
+  // Group categories by their visual group (personal/indices/sectors/themes)
+  const groupedCategories = useMemo(() => {
+    const out: Record<string, CategoryKey[]> = { personal: [], indices: [], sectors: [], themes: [] };
+    for (const key of CATEGORY_ORDER) {
+      const g = CATEGORIES[key].group;
+      out[g].push(key);
+    }
+    return out;
+  }, []);
 
   const toggleCategory = useCallback((key: CategoryKey) => {
     setSelectedCategories((prev) => {
@@ -260,20 +212,43 @@ export default function PatternScanner() {
                 p.direction === "bullish" ? "var(--fin-up)" :
                 p.direction === "bearish" ? "var(--fin-down)" :
                 "var(--text-3)";
+              const desc = lang === "zh" ? p.description_zh : p.description_en;
               return (
-                <button
-                  key={p.code}
-                  onClick={() => togglePattern(p.code)}
-                  className={`text-left px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer truncate ${
-                    active
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-hot)]"
-                      : "border-[var(--line-soft)] bg-white hover:border-[var(--line-mid)] text-[var(--text-1)]"
-                  }`}
-                  title={lang === "zh" ? p.name_zh : p.name_en}
-                >
-                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: dirColor }} />
-                  {lang === "zh" ? p.name_zh : p.name_en}
-                </button>
+                <div key={p.code} className="relative group">
+                  <button
+                    onClick={() => togglePattern(p.code)}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer truncate ${
+                      active
+                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-hot)]"
+                        : "border-[var(--line-soft)] bg-white hover:border-[var(--line-mid)] text-[var(--text-1)]"
+                    }`}
+                  >
+                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: dirColor }} />
+                    {lang === "zh" ? p.name_zh : p.name_en}
+                  </button>
+                  {/* Hover tooltip with plain-language explanation for beginners.
+                      Renders above the button so it never gets clipped by the
+                      grid container; opacity transition keeps it from feeling jumpy. */}
+                  {desc && (
+                    <div
+                      role="tooltip"
+                      className="pointer-events-none absolute z-30 left-0 right-0 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    >
+                      <div className="bg-[var(--text-0)] text-white text-[11px] leading-snug rounded-lg px-3 py-2 shadow-lg max-w-[280px]">
+                        <div className="font-bold mb-1 flex items-center gap-1.5">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: dirColor }} />
+                          {lang === "zh" ? p.name_zh : p.name_en}
+                          <span className="ml-auto text-[9px] opacity-70 uppercase tracking-wider">
+                            {p.direction === "bullish" ? (lang === "zh" ? "看涨" : "Bullish") :
+                             p.direction === "bearish" ? (lang === "zh" ? "看跌" : "Bearish") :
+                             (lang === "zh" ? "中性" : "Neutral")}
+                          </span>
+                        </div>
+                        <div className="opacity-90">{desc}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -290,36 +265,60 @@ export default function PatternScanner() {
           )}
         </div>
 
-        {/* Universe selector */}
+        {/* Universe selector — grouped multi-select using shared categories */}
         <div className="mt-4">
-          <div className="text-[10.5px] text-[var(--text-2)] uppercase tracking-wider font-semibold mb-2">
-            {lang === "zh" ? "扫描范围" : "Universe"}
-            <span className="ml-2 text-[var(--text-3)] normal-case">
+          <div className="text-[10.5px] text-[var(--text-2)] uppercase tracking-wider font-semibold mb-2 flex items-center gap-2">
+            <span>{lang === "zh" ? "扫描范围（可多选）" : "Universe (multi-select)"}</span>
+            <span className="text-[var(--accent-hot)] normal-case">
+              {lang === "zh" ? `已选 ${selectedCategories.size} 类` : `${selectedCategories.size} selected`}
+            </span>
+            <span className="text-[var(--text-3)] normal-case">
               ({lang === "zh" ? `${universe.length} 个标的` : `${universe.length} tickers`})
             </span>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORY_ORDER.map((key) => {
-              const active = selectedCategories.has(key);
+          <div className="space-y-2">
+            {(["personal", "indices", "sectors", "themes"] as const).map((group) => {
+              const keys = groupedCategories[group] || [];
+              if (keys.length === 0) return null;
               return (
-                <button
-                  key={key}
-                  onClick={() => toggleCategory(key)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                    active
-                      ? "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white shadow-[var(--shadow-blue)]"
-                      : "bg-[var(--bg-2)] text-[var(--text-1)] hover:bg-[var(--bg-3)]"
-                  }`}
-                >
-                  {CATEGORY_LABELS[key][lang]}
-                </button>
+                <div key={group}>
+                  <div className="text-[9.5px] uppercase tracking-wider text-[var(--text-3)] mb-1 font-semibold">
+                    {GROUP_LABELS[group][lang]}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {keys.map((key) => {
+                      const meta = CATEGORIES[key];
+                      const active = selectedCategories.has(key);
+                      const count =
+                        key === "watchlist" ? watchlistItems.length :
+                        key === "custom" ? customTickers.split(/[,\s]+/).filter(Boolean).length :
+                        meta.tickers.length;
+                      const disabled = key === "watchlist" && watchlistItems.length === 0;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => !disabled && toggleCategory(key)}
+                          disabled={disabled}
+                          title={meta[lang].desc}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1 ${
+                            active
+                              ? "bg-gradient-to-r from-[var(--accent)] to-[var(--accent-violet)] text-white shadow-[var(--shadow-blue)]"
+                              : "bg-[var(--bg-2)] text-[var(--text-1)] hover:bg-[var(--bg-3)]"
+                          }`}
+                        >
+                          <span>{meta[lang].label}</span>
+                          {count > 0 && key !== "custom" && (
+                            <span className={`text-[8.5px] mono px-1 rounded-full ${active ? "bg-white/25 text-white" : "bg-white text-[var(--text-2)]"}`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             })}
-          </div>
-          <div className="mt-1.5 text-[10px] text-[var(--text-3)]">
-            {lang === "zh"
-              ? "可多选；后端最多扫描 30 个去重后的标的"
-              : "Multi-select; backend caps the deduplicated universe at 30 tickers"}
           </div>
 
           {selectedCategories.has("custom") && (
@@ -331,6 +330,17 @@ export default function PatternScanner() {
               className="mt-2 w-full px-3 py-2 rounded-lg bg-[var(--bg-1)] border border-[var(--line-mid)] text-sm focus:outline-none focus:border-[var(--accent)]"
             />
           )}
+
+          <div className="text-[10.5px] text-[var(--text-2)] mt-3 leading-relaxed bg-[var(--bg-1)] border border-[var(--line-soft)] rounded-lg px-3 py-2">
+            <span className="font-semibold">
+              {lang === "zh" ? "即将扫描" : "Will scan"}{" "}
+              <span className="text-[var(--accent-hot)]">({universe.length})</span>:
+            </span>{" "}
+            <span className="mono">
+              {universe.slice(0, 15).join(", ")}
+              {universe.length > 15 ? ` … (+${universe.length - 15})` : ""}
+            </span>
+          </div>
         </div>
 
         {/* Run button */}

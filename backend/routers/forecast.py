@@ -55,22 +55,43 @@ async def get_market_intel(ticker: str, req: MarketIntelRequest = None):
     ticker = _ensure_us_ticker(ticker)
     lang = "Chinese" if req.locale == "zh" else "English"
 
+    # 1. 获取真实新闻 — A股使用东方财富(AKShare), 美股使用 Polygon
+    from backend.services.cn_data import _ticker_to_code, fetch_cn_news
+    raw_news: list[dict] = []
     try:
-        # 1. 获取真实新闻 (Polygon.io)
-        raw_news = await _fetcher.get_news(ticker, limit=50)
+        if _ticker_to_code(ticker):
+            cn_news_items = await fetch_cn_news(ticker, limit=20)
+            raw_news = [
+                {
+                    "title": n["title"],
+                    "description": n["title"],
+                    "article_url": n["url"],
+                    "published_utc": n["published_at"],
+                    "publisher": {"name": n["source"]},
+                }
+                for n in cn_news_items
+            ]
+        else:
+            raw_news = await _fetcher.get_news(ticker, limit=50)
+    except Exception:
+        raw_news = []
 
-        # 2. 获取分析师数据 (Yahoo Finance)
+    # 2. 分析师数据和财报日期 — A股从 Yahoo 取不到, 任何失败都不阻塞主流程
+    try:
         analyst_data = await _fetcher.get_analyst_data(ticker)
-
-        # 3. 获取财报日期
+    except Exception:
+        analyst_data = {}
+    try:
         earnings_date = await _fetcher.get_earnings_date(ticker)
+    except Exception:
+        earnings_date = None
 
-        # 4. 获取现价
+    # 3. 现价 — 这个对所有市场都需要; 失败才报错
+    try:
         spot_data = await _fetcher.get_spot_price(ticker)
         spot = spot_data["spot_price"]
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch spot price: {str(e)}")
 
     # --- 处理新闻 ---
     news_items = []
