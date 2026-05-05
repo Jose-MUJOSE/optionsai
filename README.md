@@ -225,6 +225,72 @@ Full English / 中文 toggle. Every label, explanation, tooltip, and AI response
 
 ---
 
+## 📐 Options Strategy Engine
+
+The Strategy Engine is the core analytical layer that translates market outlook into concrete, risk-defined options structures — not generic advice.
+
+### How it works
+
+1. **Input** — user selects market direction (bullish / bearish / neutral / volatile), risk tolerance, and target horizon
+2. **Screening** — the engine evaluates all applicable strategies against the current IV environment, days-to-expiration, and available strikes
+3. **Ranking** — strategies are scored by: expected return / max risk ratio, IV-appropriateness (buy low IV / sell high IV), capital efficiency, and probability of profit
+4. **Output** — top 3–5 strategies, each with full parameter specification
+
+### Supported strategies (24+)
+
+| Category | Strategies |
+|----------|-----------|
+| **Directional — debit** | Long Call, Long Put, Bull Call Spread, Bear Put Spread, Call Ratio Spread |
+| **Directional — synthetic** | Synthetic Long, Synthetic Short, Collar |
+| **Income / credit** | Covered Call, Cash-Secured Put, Bull Put Spread, Bear Call Spread, Jade Lizard |
+| **Neutral / volatility sell** | Short Straddle, Short Strangle, Iron Condor, Iron Butterfly, Calendar Spread |
+| **Volatility buy** | Long Straddle, Long Strangle, Back Spread (Call / Put), Diagonal Spread |
+| **Advanced** | Broken Wing Butterfly, Skip-Strike Butterfly, Double Diagonal |
+
+### Per-strategy output
+
+For every recommended strategy the platform shows:
+
+| Field | Description |
+|-------|-------------|
+| **Structure** | Exact legs — strike, expiration, buy/sell, contract count |
+| **Max Profit** | Dollar amount or "unlimited" for directional strategies |
+| **Max Loss** | Dollar amount — always finite for defined-risk structures |
+| **Breakeven** | One or two price levels at expiration |
+| **Win Probability** | BSM-derived P(profit) at expiration |
+| **Capital Required** | Net debit or margin requirement |
+| **IV Fit** | ✅ Appropriate / ⚠️ Suboptimal for current IV Rank |
+| **Risk/Reward** | Max Profit ÷ Max Loss ratio |
+
+### Interactive What-If Payoff Chart
+
+After selecting a strategy, the **What-If mode** lets you drag strike and quantity sliders to see the payoff diagram update live — no page reload. The chart shows:
+
+- **P&L curve at expiration** — solid line showing profit/loss across a ±30% price range
+- **P&L curve today** — dashed line showing current value with time value intact
+- **Breakeven lines** — red vertical markers
+- **Current stock price** — blue vertical marker
+
+### Scientific Walk-Forward Backtest
+
+Every strategy can be backtested against the past 1–2 years of real price history using BSM full-revaluation (not simple returns). Output metrics:
+
+| Metric | Description |
+|--------|-------------|
+| **Total Return** | Cumulative P&L including costs |
+| **Sharpe Ratio** | Risk-adjusted return (annualized) |
+| **Sortino Ratio** | Downside-deviation-adjusted Sharpe |
+| **Calmar Ratio** | Return / Max Drawdown |
+| **Max Drawdown** | Peak-to-trough capital decline |
+| **Win Rate** | % of trades that closed profitable |
+| **Profit Factor** | Gross profit ÷ Gross loss |
+| **Avg Hold Days** | Typical trade duration |
+| **Transaction Costs** | Commissions + slippage deducted per trade |
+
+> All backtest simulations use real OHLCV data from Yahoo Finance. Past performance does not predict future results.
+
+---
+
 ## 🏗 Architecture
 
 <img src="docs/images/architecture.svg" alt="System Architecture" width="100%"/>
@@ -233,20 +299,20 @@ Full English / 中文 toggle. Every label, explanation, tooltip, and AI response
 
 ```mermaid
 flowchart LR
-    U(["👤 User"]) --> FE["Next.js 16<br/>React 19 · Zustand"]
-    FE -- "HTTP / SSE" --> API["FastAPI<br/>Python 3.12"]
-    API --> TA["Trader Agent<br/>9 Researchers + PM + Debate"]
-    API --> ORC["Multi-Agent<br/>Chat Pipeline"]
-    API --> SE["Strategy Engine<br/>BSM + Backtest"]
-    API --> CP["Company Profile<br/>Aggregator"]
-    API --> PG["Portfolio Greeks<br/>BSM + Scenarios"]
+    U["User"] --> FE["Next.js 16\nReact 19 / Zustand"]
+    FE -- "HTTP / SSE" --> API["FastAPI\nPython 3.12"]
+    API --> TA["Trader Agent\n9 Researchers + PM + Debate"]
+    API --> ORC["Multi-Agent\nChat Pipeline"]
+    API --> SE["Strategy Engine\nBSM + Backtest"]
+    API --> CP["Company Profile\nAggregator"]
+    API --> PG["Portfolio Greeks\nBSM + Scenarios"]
     API --> DF["Data Fetcher"]
-    TA --> LLM["LLM<br/>10 providers · OpenAI-compatible"]
+    TA --> LLM["LLM\n10 providers - OpenAI compatible"]
     ORC --> LLM
-    DF --> YF[("Yahoo Finance<br/>REST API")]
-    DF --> PO[("Polygon.io<br/>backup")]
-    DF --> FR[("FINRA RegSHO<br/>short volume")]
-    FE -. "saved to" .-> LS[("localStorage<br/>analysis history")]
+    DF --> YF["Yahoo Finance\nREST API"]
+    DF --> PO["Polygon.io\nbackup"]
+    DF --> FR["FINRA RegSHO\nshort volume"]
+    FE -. "saved to" .-> LS["localStorage\nanalysis history"]
 ```
 
 ---
