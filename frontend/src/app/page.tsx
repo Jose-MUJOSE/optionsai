@@ -64,19 +64,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<AppView>("dashboard");
 
-  // Hydration-safe locale restore. Server always emits "en"; once the client
-  // has mounted we read the user's saved preference from localStorage and
-  // sync it into the store. Same pattern as the sidebar widths below.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("optionsai.locale");
-    if (saved === "zh" || saved === "en") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLocale(saved);
-    }
-    // setLocale is stable from Zustand — safe to omit from deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Default language is English. The user can switch via the sidebar toggle
+  // during the session, but every fresh page load starts in English.
 
   /** Click home/logo: clear ticker AND switch to dashboard view. */
   const handleGoHome = useCallback(() => {
@@ -234,7 +223,7 @@ export default function Home() {
                     {view === "options"    && (marketData ? `${marketData.ticker} ${locale === "zh" ? "· 期权" : "· Options"}` : (locale === "zh" ? "期权研究" : "Options Research"))}
                     {view === "watchlist"  && t("watchlist.title", locale)}
                     {view === "news"       && t("news.title", locale)}
-                    {view === "strategies" && t("nav.strategies", locale)}
+                    {view === "strategies" && (locale === "zh" ? "期权策略" : "Options Strategies")}
                     {view === "trader"     && t("trader.title", locale)}
                     {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
                     {view === "scanner"    && (locale === "zh" ? "期权策略扫描器" : "Options Strategy Scanner")}
@@ -376,7 +365,7 @@ export default function Home() {
             {view === "scanner" && <StrategyScanner />}
 
             {/* VIEW: Pattern Scanner */}
-            {view === "patterns" && <PatternScanner />}
+            {view === "patterns" && <PatternScanner onOpenTicker={handleOpenTicker} />}
 
             {/* VIEW: Alerts */}
             {view === "alerts" && <EventAlerts />}
@@ -415,7 +404,7 @@ export default function Home() {
 function EmptyState() {
   const { locale } = useAppStore();
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center anim-fade-up">
+    <div className="flex flex-col items-center justify-center py-20 text-center anim-fade-up">
       <div className="relative w-24 h-24 mb-8">
         <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[var(--accent-soft)] to-[rgba(109,78,224,0.18)] border border-[rgba(45,76,221,0.22)] shadow-[var(--shadow-blue)]" />
         <div className="absolute inset-0 rounded-2xl overflow-hidden">
@@ -426,9 +415,28 @@ function EmptyState() {
       <h2 className="text-xl font-bold text-[var(--text-0)] tracking-tight mb-2">
         {t("dashboard.emptyTitle", locale)}
       </h2>
-      <p className="text-sm text-[var(--text-1)] max-w-md leading-relaxed mb-6">
+      <p className="text-sm text-[var(--text-1)] max-w-md leading-relaxed mb-5">
         {t("dashboard.emptyDesc", locale)}
       </p>
+
+      {/* Coverage notice — sets expectations up-front so users don't search a
+          Chinese ticker hoping for options data and get an empty options view. */}
+      <div className="w-full max-w-xl mb-6 rounded-xl border border-[rgba(45,76,221,0.18)] bg-gradient-to-br from-[var(--accent-soft)] to-white px-4 py-3 text-left">
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 inline-flex w-5 h-5 items-center justify-center rounded-full bg-[var(--accent)] text-white text-[10px] font-bold shrink-0">i</span>
+          <div className="text-[12px] leading-relaxed text-[var(--text-1)]">
+            <div className="font-semibold text-[var(--text-0)] mb-1">
+              {locale === "zh" ? "本平台主要覆盖美股市场" : "Primary coverage: US equities & options"}
+            </div>
+            <div>
+              {locale === "zh"
+                ? "建议优先研究美股 / ETF，期权研究、策略推荐、希腊字母、IV 期限结构等高级功能仅对美股可用。A 股 / 港股 仅提供基础股票研究（公司资料、财报、新闻、技术形态），数据相对美股更少且无期权数据。"
+                : "We recommend researching US stocks and ETFs first — Options Research, Strategy recommendations, Greeks, and IV term structure are US-only. A-share / HK tickers support basic stock research (company profile, financials, news, patterns) only, with thinner data and no listed options."}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="w-full max-w-xl">
         <TickerSearch />
       </div>

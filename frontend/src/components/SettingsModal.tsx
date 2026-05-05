@@ -13,10 +13,19 @@ interface Props {
   locale: Locale;
 }
 
-const LLM_PROVIDERS = [
+// Fallback ordering + display labels — backend is source of truth via
+// `llm_presets`, but we keep this for the unlikely case the API hasn't
+// returned yet, and to enforce a stable button order.
+const PROVIDER_ORDER: { id: string; label: string }[] = [
   { id: "deepseek", label: "DeepSeek" },
   { id: "openai", label: "OpenAI" },
   { id: "anthropic", label: "Anthropic" },
+  { id: "gemini", label: "Google Gemini" },
+  { id: "kimi", label: "Kimi" },
+  { id: "qwen", label: "Qwen" },
+  { id: "minimax", label: "MiniMax" },
+  { id: "zhipu", label: "Zhipu GLM" },
+  { id: "doubao", label: "Doubao" },
   { id: "custom", label: "Custom" },
 ];
 
@@ -71,13 +80,34 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
   const handleProviderChange = (provider: string) => {
     if (!config) return;
     const preset = config.llm_presets?.[provider];
+    // When switching to a known preset always overwrite base_url/model so the
+    // user doesn't end up calling Anthropic with a DeepSeek URL still in the box.
+    // Custom keeps whatever the user already typed.
     setConfig({
       ...config,
       llm_provider: provider,
-      llm_base_url: preset?.base_url || config.llm_base_url,
-      llm_model: preset?.model || config.llm_model,
+      llm_base_url: provider === "custom" ? config.llm_base_url : preset?.base_url ?? "",
+      llm_model: provider === "custom" ? config.llm_model : preset?.model ?? "",
     });
   };
+
+  const providerList = (() => {
+    // Prefer the order from PROVIDER_ORDER, but only show providers that the
+    // backend actually exposes. If the API surfaces an extra provider we don't
+    // know about, append it at the end so it's still selectable.
+    const presets = config?.llm_presets ?? {};
+    const known = new Set(PROVIDER_ORDER.map((p) => p.id));
+    const ordered = PROVIDER_ORDER.filter((p) => p.id in presets).map((p) => ({
+      id: p.id,
+      label: presets[p.id]?.label || p.label,
+    }));
+    const extras = Object.keys(presets)
+      .filter((id) => !known.has(id))
+      .map((id) => ({ id, label: presets[id]?.label || id }));
+    return ordered.length ? [...ordered, ...extras] : PROVIDER_ORDER;
+  })();
+
+  const currentSignupUrl = config?.llm_presets?.[config?.llm_provider ?? ""]?.signup_url || "";
 
   const inputClass =
     "w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all";
@@ -159,16 +189,17 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
             {/* LLM Provider */}
             <div>
               <label className={labelClass}>{t("settings.llmProvider", locale)}</label>
-              <div className="flex gap-2 flex-wrap">
-                {LLM_PROVIDERS.map((lp) => (
+              <div className="grid grid-cols-3 gap-2">
+                {providerList.map((lp) => (
                   <button
                     key={lp.id}
                     onClick={() => handleProviderChange(lp.id)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer truncate ${
                       config.llm_provider === lp.id
                         ? "bg-blue-600 text-white shadow-sm"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                     }`}
+                    title={lp.label}
                   >
                     {lp.label}
                   </button>
@@ -178,7 +209,21 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
 
             {/* LLM API Key */}
             <div>
-              <label className={labelClass}>{t("settings.apiKey", locale)}</label>
+              <label className={labelClass}>
+                {t("settings.apiKey", locale)}
+                {currentSignupUrl && (
+                  <span className="ml-2 text-xs text-blue-500 font-normal">
+                    <a
+                      href={currentSignupUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline"
+                    >
+                      {locale === "zh" ? "获取 API Key →" : "Get API key →"}
+                    </a>
+                  </span>
+                )}
+              </label>
               <input
                 type="password"
                 value={config.llm_api_key}

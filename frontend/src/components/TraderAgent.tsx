@@ -52,16 +52,20 @@ const STANCE_STYLES: Record<string, { bg: string; text: string; ring: string; ic
   neutral: { bg: "bg-slate-50", text: "text-slate-600", ring: "ring-slate-200", icon: Minus },
 };
 
-const RESEARCHER_META: Record<string, { name_en: string; name_zh: string; icon: string }> = {
-  bull:        { name_en: "Bull Researcher",        name_zh: "看多研究员",   icon: "📈" },
-  bear:        { name_en: "Bear Researcher",        name_zh: "看空研究员",   icon: "📉" },
-  technical:   { name_en: "Technical Researcher",   name_zh: "技术面研究员", icon: "📊" },
-  fundamental: { name_en: "Fundamental Researcher", name_zh: "基本面研究员", icon: "💼" },
-  market:      { name_en: "Market Researcher",      name_zh: "市场研究员",   icon: "🌐" },
-  industry:    { name_en: "Industry Researcher",    name_zh: "行业研究员",   icon: "🏭" },
-  financial:   { name_en: "Financial Researcher",   name_zh: "财务研究员",   icon: "🧮" },
-  news:        { name_en: "News & Events",          name_zh: "新闻事件",     icon: "📰" },
-  options:     { name_en: "Options Researcher",     name_zh: "期权研究员",   icon: "🎯" },
+// Institutional-grade titles. We expose seniority and discipline in the
+// label so users understand each agent occupies a real sell-side role,
+// not a generic "AI persona". The shorter "name_en"/"name_zh" stays as the
+// main heading; the new desk_en/desk_zh shows in the credential strip.
+const RESEARCHER_META: Record<string, { name_en: string; name_zh: string; desk_en: string; desk_zh: string; icon: string }> = {
+  bull:        { name_en: "Bull-Side Strategist",       name_zh: "多头策略师",     desk_en: "Long-Bias Desk",            desk_zh: "多头研究台",     icon: "📈" },
+  bear:        { name_en: "Short-Side Strategist",      name_zh: "空头策略师",     desk_en: "Short-Bias Desk",           desk_zh: "空头研究台",     icon: "📉" },
+  technical:   { name_en: "Chief Technical Analyst",    name_zh: "首席技术分析师", desk_en: "Quantitative Strategy",     desk_zh: "量化策略",       icon: "📊" },
+  fundamental: { name_en: "Senior Equity Analyst",      name_zh: "高级股票分析师", desk_en: "Fundamental Coverage",      desk_zh: "基本面覆盖",     icon: "💼" },
+  market:      { name_en: "Macro Strategist",           name_zh: "宏观策略师",     desk_en: "Cross-Asset Macro",         desk_zh: "跨资产宏观",     icon: "🌐" },
+  industry:    { name_en: "Sector Specialist",          name_zh: "行业研究主管",   desk_en: "Sector Coverage",           desk_zh: "行业覆盖",       icon: "🏭" },
+  financial:   { name_en: "Quality-of-Earnings Analyst", name_zh: "盈利质量分析师", desk_en: "Forensic Accounting",       desk_zh: "财报取证",       icon: "🧮" },
+  news:        { name_en: "Catalyst & Events Analyst",  name_zh: "事件催化师",     desk_en: "Event-Driven Desk",         desk_zh: "事件驱动",       icon: "📰" },
+  options:     { name_en: "Volatility Strategist",      name_zh: "波动率策略师",   desk_en: "Options & Vol Desk",        desk_zh: "期权与波动率",   icon: "🎯" },
 };
 
 export default function TraderAgent() {
@@ -143,15 +147,20 @@ export default function TraderAgent() {
       <div className="card-elevated p-5 space-y-4 anim-fade-up">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="relative w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-md">
-                <Brain className="w-4 h-4 text-white" strokeWidth={2.2} />
+            <div className="flex items-center gap-3 mb-1">
+              <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 via-violet-700 to-indigo-700 flex items-center justify-center shadow-md">
+                <Brain className="w-5 h-5 text-white" strokeWidth={2.2} />
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white anim-data-pulse" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-[var(--text-0)] tracking-tight">{t("trader.title", locale)}</h2>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-lg font-bold text-[var(--text-0)] tracking-tight">{t("trader.title", locale)}</h2>
+                  <span className="text-[9px] font-bold tracking-[0.18em] uppercase px-1.5 py-0.5 rounded bg-slate-900 text-amber-300">
+                    {locale === "zh" ? "机构级" : "Institutional"}
+                  </span>
+                </div>
                 <p className="text-[11px] text-[var(--text-2)] uppercase tracking-[0.16em] font-semibold">
-                  {t("trader.subtitle", locale)}
+                  OptionsAI Research Desk · {t("trader.subtitle", locale)}
                 </p>
               </div>
             </div>
@@ -451,17 +460,19 @@ function ResearcherSelector(props: {
 
   const isSelected = (id: string) => isAll || props.selected.includes(id);
 
-  // Researcher metadata (mirrors backend RESEARCHER_SPECS for display)
+  // Researcher metadata — short, institutional-style labels.
+  // Names are kept compact here because each pill must fit in a 3-col grid;
+  // the long titles live in the Researcher cards (RESEARCHER_META above).
   const META: Record<string, { name_en: string; name_zh: string; icon: string; color: string }> = {
-    bull:        { name_en: "Bull",        name_zh: "看多",    icon: "📈", color: "emerald" },
-    bear:        { name_en: "Bear",        name_zh: "看空",    icon: "📉", color: "red" },
-    technical:   { name_en: "Technical",   name_zh: "技术面",  icon: "📊", color: "blue" },
-    fundamental: { name_en: "Fundamental", name_zh: "基本面",  icon: "💼", color: "purple" },
-    market:      { name_en: "Market",      name_zh: "市场",    icon: "🌐", color: "cyan" },
-    industry:    { name_en: "Industry",    name_zh: "行业",    icon: "🏭", color: "amber" },
-    financial:   { name_en: "Financial",   name_zh: "财务",    icon: "🧮", color: "indigo" },
-    news:        { name_en: "News",        name_zh: "新闻",    icon: "📰", color: "rose" },
-    options:     { name_en: "Options",     name_zh: "期权",    icon: "🎯", color: "teal" },
+    bull:        { name_en: "Long Bias",      name_zh: "多头策略",   icon: "📈", color: "emerald" },
+    bear:        { name_en: "Short Bias",     name_zh: "空头策略",   icon: "📉", color: "red" },
+    technical:   { name_en: "Technicals",     name_zh: "技术分析",   icon: "📊", color: "blue" },
+    fundamental: { name_en: "Equity Coverage",name_zh: "股票覆盖",   icon: "💼", color: "purple" },
+    market:      { name_en: "Macro",          name_zh: "宏观策略",   icon: "🌐", color: "cyan" },
+    industry:    { name_en: "Sector",         name_zh: "行业覆盖",   icon: "🏭", color: "amber" },
+    financial:   { name_en: "Earnings Q.",    name_zh: "盈利质量",   icon: "🧮", color: "indigo" },
+    news:        { name_en: "Catalysts",      name_zh: "事件驱动",   icon: "📰", color: "rose" },
+    options:     { name_en: "Volatility",     name_zh: "波动率台",   icon: "🎯", color: "teal" },
   };
 
   const presets: { label_en: string; label_zh: string; ids: string[] }[] = [
@@ -639,7 +650,13 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
   const [expanded, setExpanded] = useState(false);
   const stance = STANCE_STYLES[researcher.stance] ?? STANCE_STYLES.neutral;
   const StanceIcon = stance.icon;
-  const name = locale === "zh" ? researcher.name_zh : researcher.name_en;
+  // Prefer the curated front-end title (e.g. "Senior Equity Analyst") so the
+  // desk name is consistent regardless of what the LLM happened to echo back.
+  const meta = RESEARCHER_META[researcher.id];
+  const name = meta
+    ? (locale === "zh" ? meta.name_zh : meta.name_en)
+    : (locale === "zh" ? researcher.name_zh : researcher.name_en);
+  const desk = meta ? (locale === "zh" ? meta.desk_zh : meta.desk_en) : null;
   const stanceLabel = t(
     `trader.stance${researcher.stance.charAt(0).toUpperCase() + researcher.stance.slice(1)}` as "trader.stanceBullish",
     locale,
@@ -651,7 +668,7 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
         <div className="flex items-start gap-3">
           <div className="text-2xl shrink-0 leading-none">{researcher.icon}</div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               <h4 className="text-sm font-bold text-[var(--text-0)] truncate">{name}</h4>
               <span
                 className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${stance.bg} ${stance.text} ring-1 ${stance.ring} flex items-center gap-1 shrink-0`}
@@ -660,6 +677,11 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
                 {stanceLabel}
               </span>
             </div>
+            {desk && (
+              <div className="text-[9.5px] uppercase tracking-[0.14em] text-[var(--text-2)] font-semibold mb-1.5">
+                {desk}
+              </div>
+            )}
             <p className="text-[12.5px] text-[var(--text-1)] leading-snug line-clamp-2">{researcher.headline}</p>
             <div className="flex items-center gap-2 mt-2">
               <ConvictionDots value={researcher.confidence} />
@@ -697,16 +719,20 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
           )}
           {researcher.risks && <Section label={t("trader.risks", locale)} text={researcher.risks} muted />}
 
-          {/* Debate-phase rebuttal block (Bull / Bear only) */}
+          {/* Debate-phase rebuttal block — every researcher rebuts a peer */}
           {researcher.rebuttal && (
             <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700">
                   {locale === "zh" ? "辩论回应" : "Debate Response"}
                 </span>
-                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-200 text-violet-800">
-                  {locale === "zh" ? "新" : "NEW"}
-                </span>
+                {researcher.rebuttal.opponent_id && (
+                  <span className="text-[9.5px] font-medium text-violet-700/80">
+                    {locale === "zh"
+                      ? `→ 回应 ${researcher.rebuttal.opponent_id}`
+                      : `→ rebutting ${researcher.rebuttal.opponent_id}`}
+                  </span>
+                )}
               </div>
               {researcher.rebuttal.rebuttal && (
                 <div>
@@ -1020,20 +1046,86 @@ function TraderEmptyState({
     hydrate();
   }, [hydrate]);
 
+  // Methodology bullets framed like an institutional desk note. Static text
+  // by design — describes how the pipeline works, no LLM calls needed.
+  const methodology: { title_en: string; title_zh: string; desc_en: string; desc_zh: string }[] = [
+    {
+      title_en: "9 specialist desks",
+      title_zh: "9 个专项研究台",
+      desc_en: "Long-bias, short-bias, technicals, equity coverage, macro, sector, earnings quality, catalysts, volatility — each runs independently with role-locked prompts.",
+      desc_zh: "多头/空头策略、技术分析、股票覆盖、宏观、行业、盈利质量、事件催化、波动率 — 9 个专项研究台并行独立运行。",
+    },
+    {
+      title_en: "Full-team cross-examination",
+      title_zh: "全员交叉辩论",
+      desc_en: "Every desk is paired with a peer holding a differing view and files a written rebuttal — concession, counter-argument, and reinforced evidence — before the Portfolio Manager weighs in.",
+      desc_zh: "每个研究台都会与一位观点不同的同行配对，互相书面反驳——必须包含让步、反驳和强化证据——再由投资经理进行综合裁决。",
+    },
+    {
+      title_en: "Portfolio Manager call",
+      title_zh: "投资经理决策",
+      desc_en: "Final BUY / HOLD / SELL with conviction score, entry zone, stop-loss, and time horizon — backed by the consolidated research package.",
+      desc_zh: "最终给出 BUY / HOLD / SELL 决策、信念评分、入场区间、止损位、时间周期 — 全部基于研究包合并依据。",
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col items-center justify-center py-12 text-center anim-fade-up">
         <div className="relative w-24 h-24 mb-8">
-          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-violet-100 to-indigo-200 border border-violet-200 shadow-lg" />
+          <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-slate-800 via-violet-600 to-indigo-700 border border-violet-200 shadow-lg" />
           <div className="absolute inset-0 rounded-2xl overflow-hidden">
             <div className="shimmer absolute inset-0" />
           </div>
-          <Brain className="absolute inset-0 m-auto w-10 h-10 text-violet-600 anim-float-slow" strokeWidth={1.8} />
+          <Brain className="absolute inset-0 m-auto w-10 h-10 text-white anim-float-slow" strokeWidth={1.8} />
         </div>
-        <h2 className="text-xl font-bold text-[var(--text-0)] tracking-tight mb-2">
-          {t("trader.emptyTitle", locale)}
-        </h2>
+        <div className="flex items-center gap-2 mb-2 flex-wrap justify-center">
+          <h2 className="text-xl font-bold text-[var(--text-0)] tracking-tight">
+            {t("trader.emptyTitle", locale)}
+          </h2>
+          <span className="text-[9px] font-bold tracking-[0.18em] uppercase px-1.5 py-0.5 rounded bg-slate-900 text-amber-300">
+            {locale === "zh" ? "机构级" : "Institutional"}
+          </span>
+        </div>
+        <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-2)] font-semibold mb-2">
+          OptionsAI Research Desk
+        </p>
         <p className="text-sm text-[var(--text-1)] max-w-md leading-relaxed">{t("trader.emptyDesc", locale)}</p>
+      </div>
+
+      {/* Methodology card — institutional-style three-column brief. */}
+      <div className="rounded-2xl border border-[var(--line-soft)] bg-gradient-to-br from-white to-slate-50/40 p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-4 bg-gradient-to-b from-violet-500 to-indigo-600 rounded-full" />
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--text-2)]">
+            {locale === "zh" ? "研究方法" : "Research Methodology"}
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {methodology.map((m, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[10px] font-mono font-bold text-[var(--accent)]">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <h4 className="text-[13px] font-bold text-[var(--text-0)]">
+                  {locale === "zh" ? m.title_zh : m.title_en}
+                </h4>
+              </div>
+              <p className="text-[12px] text-[var(--text-1)] leading-relaxed">
+                {locale === "zh" ? m.desc_zh : m.desc_en}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 pt-3 border-t border-[var(--line-soft)] text-[10.5px] text-[var(--text-2)] leading-relaxed flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-px shrink-0" />
+          <span>
+            {locale === "zh"
+              ? "本研究台输出仅供研究参考，不构成投资建议。所有结论基于公开数据与 LLM 推理，可能包含错误。"
+              : "Research desk output is for informational purposes only and does not constitute investment advice. All conclusions are derived from public data and LLM reasoning and may contain errors."}
+          </span>
+        </div>
       </div>
 
       {history.length > 0 && (

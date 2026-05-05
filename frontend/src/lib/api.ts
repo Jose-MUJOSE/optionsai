@@ -491,7 +491,10 @@ export interface SettingsConfig {
   llm_api_key: string;
   llm_base_url: string;
   llm_model: string;
-  llm_presets?: Record<string, { base_url: string; model: string }>;
+  llm_presets?: Record<
+    string,
+    { base_url: string; model: string; label?: string; signup_url?: string }
+  >;
 }
 
 export async function fetchSettings(): Promise<SettingsConfig> {
@@ -928,6 +931,8 @@ export interface ResearcherRebuttal {
   rebuttal: string;
   reinforced_evidence?: string;
   concession?: string;
+  /** Researcher ID being rebutted (every researcher debates a peer now). */
+  opponent_id?: string;
 }
 
 export interface ResearcherResult {
@@ -1001,7 +1006,7 @@ export type TraderEvent =
   | { type: "phase"; phase: "gathering_data" | "research_start" | "debate_start" | "manager_start" }
   | { type: "selected"; ids: string[]; count: number }
   | { type: "researcher"; result: ResearcherResult }
-  | { type: "rebuttal"; id: string; rebuttal: ResearcherRebuttal }
+  | { type: "rebuttal"; id: string; opponent_id?: string; rebuttal: ResearcherRebuttal }
   | { type: "manager"; result: ManagerDecision & { mode: TraderMode; ticker: string } }
   | { type: "done"; researchers: ResearcherResult[]; manager: ManagerDecision }
   | { type: "error"; message: string };

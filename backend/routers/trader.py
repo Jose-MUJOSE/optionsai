@@ -96,185 +96,398 @@ class TraderReportRequest(BaseModel):
 
 
 def _build_word_report(req: TraderReportRequest) -> bytes:
-    """Generate a Word .docx report and return its bytes."""
+    """
+    Generate a typeset Word .docx report.
+
+    Layout overhaul rationale: the old version used `add_paragraph()` for every
+    block, leaving Word to render plain Calibri 11pt with no headings, no
+    spacing, no tables — which the user (rightly) called out as ugly. This
+    rebuild uses Word's built-in heading styles (so the doc has a real outline
+    and TOC support), tables for the decision summary, paragraph spacing, and
+    a coloured rule line under the title.
+    """
     from docx import Document
-    from docx.shared import Pt, Inches, RGBColor
+    from docx.shared import Pt, Inches, RGBColor, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_ALIGN_VERTICAL
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     is_zh = req.locale == "zh"
     doc = Document()
 
-    # Base style
-    style = doc.styles["Normal"]
-    style.font.name = "Times New Roman"
-    style.font.size = Pt(11)
+    # ----- Base styling --------------------------------------------------
+    # Use Calibri (Latin) + 等线 (CJK) so Chinese characters render properly.
+    base_font = "等线" if is_zh else "Calibri"
+    normal = doc.styles["Normal"]
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(10.5)
+    # Ensure CJK characters use a CJK font (python-docx default falls back to
+    # Latin, which Word renders as ugly Times for Chinese).
+    rPr = normal.element.get_or_add_rPr()
+    rFonts = rPr.find(qn("w:rFonts"))
+    if rFonts is None:
+        rFonts = OxmlElement("w:rFonts")
+        rPr.append(rFonts)
+    rFonts.set(qn("w:ascii"), "Calibri")
+    rFonts.set(qn("w:hAnsi"), "Calibri")
+    rFonts.set(qn("w:eastAsia"), base_font)
+    rFonts.set(qn("w:cs"), "Calibri")
+
+    # Heading styles — give them brand colour + slightly more weight
+    accent = RGBColor(0x1E, 0x3A, 0x8A)  # deep blue (Tailwind blue-900)
+    accent_soft = RGBColor(0x37, 0x4F, 0xC2)
+    muted = RGBColor(0x5B, 0x66, 0x77)
+
+    for level, size in [("Heading 1", 18), ("Heading 2", 14), ("Heading 3", 12)]:
+        st = doc.styles[level]
+        st.font.name = "Calibri"
+        st.font.size = Pt(size)
+        st.font.bold = True
+        st.font.color.rgb = accent if level == "Heading 1" else accent_soft
+        # Paragraph spacing
+        st.paragraph_format.space_before = Pt(14 if level == "Heading 1" else 10)
+        st.paragraph_format.space_after = Pt(6)
+        # CJK font on heading
+        h_rPr = st.element.get_or_add_rPr()
+        h_rFonts = h_rPr.find(qn("w:rFonts"))
+        if h_rFonts is None:
+            h_rFonts = OxmlElement("w:rFonts")
+            h_rPr.append(h_rFonts)
+        h_rFonts.set(qn("w:eastAsia"), base_font)
 
     # Page margins
     for section in doc.sections:
-        section.left_margin = Inches(1)
-        section.right_margin = Inches(1)
-        section.top_margin = Inches(1)
-        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(0.9)
+        section.right_margin = Inches(0.9)
+        section.top_margin = Inches(0.9)
+        section.bottom_margin = Inches(0.9)
 
-    def heading(text: str, level: int = 1):
-        h = doc.add_paragraph()
-        run = h.add_run(text)
-        run.bold = True
-        run.font.size = Pt(16 if level == 1 else 13 if level == 2 else 11)
-        run.font.color.rgb = RGBColor(0, 0, 0)
+    # ----- Helpers -------------------------------------------------------
+    def _shade_cell(cell, hex_color: str) -> None:
+        """Add background colour to a table cell (python-docx has no native API)."""
+        tcPr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), hex_color)
+        tcPr.append(shd)
 
-    def para(text: str):
+    def add_para(
+        text: str,
+        *,
+        bold: bool = False,
+        italic: bool = False,
+        size: float = 10.5,
+        color: RGBColor = RGBColor(0x1F, 0x29, 0x37),
+        alignment=None,
+        space_after: float = 4,
+    ):
         p = doc.add_paragraph()
-        run = p.add_run(text)
-        run.font.color.rgb = RGBColor(0, 0, 0)
+        if alignment is not None:
+            p.alignment = alignment
+        p.paragraph_format.space_after = Pt(space_after)
+        p.paragraph_format.line_spacing = 1.35
+        run = p.add_run(text or "—")
+        run.bold = bold
+        run.italic = italic
+        run.font.size = Pt(size)
+        run.font.color.rgb = color
+        # Force CJK font
+        rfonts = run._element.get_or_add_rPr().find(qn("w:rFonts"))
+        if rfonts is None:
+            rfonts = OxmlElement("w:rFonts")
+            run._element.get_or_add_rPr().append(rfonts)
+        rfonts.set(qn("w:eastAsia"), base_font)
         return p
 
-    def label_value(label: str, value: str):
+    def add_heading(text: str, level: int = 1):
+        h = doc.add_heading(text, level=level)
+        h.paragraph_format.keep_with_next = True
+        return h
+
+    def add_kv_table(rows: list[tuple[str, str]]):
+        """Two-column key-value table — used for the decision summary."""
+        if not rows:
+            return
+        table = doc.add_table(rows=len(rows), cols=2)
+        table.autofit = False
+        table.columns[0].width = Cm(4.5)
+        table.columns[1].width = Cm(11.5)
+        for i, (label, value) in enumerate(rows):
+            cell_l = table.cell(i, 0)
+            cell_r = table.cell(i, 1)
+            cell_l.width = Cm(4.5)
+            cell_r.width = Cm(11.5)
+            cell_l.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            cell_r.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            _shade_cell(cell_l, "EEF2FF")  # subtle blue tint for label column
+            for cell, txt, is_label in ((cell_l, label, True), (cell_r, value or "—", False)):
+                cell.text = ""
+                p = cell.paragraphs[0]
+                p.paragraph_format.space_before = Pt(2)
+                p.paragraph_format.space_after = Pt(2)
+                run = p.add_run(txt)
+                run.bold = is_label
+                run.font.size = Pt(10.5)
+                run.font.color.rgb = accent if is_label else RGBColor(0x1F, 0x29, 0x37)
+                rf = run._element.get_or_add_rPr().find(qn("w:rFonts"))
+                if rf is None:
+                    rf = OxmlElement("w:rFonts")
+                    run._element.get_or_add_rPr().append(rf)
+                rf.set(qn("w:eastAsia"), base_font)
+
+    def add_horizontal_rule(color: RGBColor = accent_soft, thickness_pt: int = 8):
+        """A coloured rule line under the title block."""
         p = doc.add_paragraph()
-        run_label = p.add_run(f"{label}: ")
-        run_label.bold = True
-        run_label.font.color.rgb = RGBColor(0, 0, 0)
-        run_value = p.add_run(value or "—")
-        run_value.font.color.rgb = RGBColor(0, 0, 0)
+        pPr = p._p.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), str(thickness_pt))
+        bottom.set(qn("w:space"), "1")
+        bottom.set(qn("w:color"),
+                   f"{color[0]:02X}{color[1]:02X}{color[2]:02X}")
+        pBdr.append(bottom)
+        pPr.append(pBdr)
 
-    # === Title ===
-    title = doc.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(
-        f"OptionsAI 专业交易员分析报告" if is_zh
-        else "OptionsAI Professional Trader Analysis Report"
+    def add_bullet(text: str):
+        p = doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_after = Pt(2)
+        run = p.add_run(text)
+        run.font.size = Pt(10.5)
+        run.font.color.rgb = RGBColor(0x1F, 0x29, 0x37)
+        rf = run._element.get_or_add_rPr().find(qn("w:rFonts"))
+        if rf is None:
+            rf = OxmlElement("w:rFonts")
+            run._element.get_or_add_rPr().append(rf)
+        rf.set(qn("w:eastAsia"), base_font)
+
+    def add_numbered(items: list[str]):
+        for i, step in enumerate(items, 1):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(3)
+            p.paragraph_format.left_indent = Cm(0.6)
+            run_n = p.add_run(f"{i}. ")
+            run_n.bold = True
+            run_n.font.color.rgb = accent
+            run_n.font.size = Pt(10.5)
+            run_t = p.add_run(str(step))
+            run_t.font.size = Pt(10.5)
+            run_t.font.color.rgb = RGBColor(0x1F, 0x29, 0x37)
+            for r in (run_n, run_t):
+                rf = r._element.get_or_add_rPr().find(qn("w:rFonts"))
+                if rf is None:
+                    rf = OxmlElement("w:rFonts")
+                    r._element.get_or_add_rPr().append(rf)
+                rf.set(qn("w:eastAsia"), base_font)
+
+    # ----- Cover block ---------------------------------------------------
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_p.paragraph_format.space_before = Pt(0)
+    title_p.paragraph_format.space_after = Pt(2)
+    t_run = title_p.add_run(
+        "OptionsAI 专业研究报告" if is_zh
+        else "OptionsAI Professional Research Report"
     )
-    run.bold = True
-    run.font.size = Pt(20)
+    t_run.bold = True
+    t_run.font.size = Pt(22)
+    t_run.font.color.rgb = accent
+    rf = t_run._element.get_or_add_rPr().find(qn("w:rFonts"))
+    if rf is None:
+        rf = OxmlElement("w:rFonts")
+        t_run._element.get_or_add_rPr().append(rf)
+    rf.set(qn("w:eastAsia"), base_font)
 
-    subtitle = doc.add_paragraph()
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub_run = subtitle.add_run(
-        f"{req.ticker} · "
-        + (("期权分析" if req.mode == "options" else "股票分析") if is_zh
-           else ("Options Analysis" if req.mode == "options" else "Stock Analysis"))
-        + f" · {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    sub_p = doc.add_paragraph()
+    sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sub_p.paragraph_format.space_after = Pt(2)
+    sub_run = sub_p.add_run(
+        f"{req.ticker}  ·  "
+        + (("期权策略分析" if req.mode == "options" else "股票投资分析") if is_zh
+           else ("Options Strategy Analysis" if req.mode == "options" else "Equity Analysis"))
     )
-    sub_run.font.size = Pt(11)
-    sub_run.font.color.rgb = RGBColor(80, 80, 80)
+    sub_run.font.size = Pt(13)
+    sub_run.font.color.rgb = accent_soft
+    sub_run.bold = True
 
-    doc.add_paragraph()  # spacer
+    date_p = doc.add_paragraph()
+    date_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    date_run = date_p.add_run(datetime.now().strftime('%Y-%m-%d %H:%M'))
+    date_run.font.size = Pt(10)
+    date_run.font.color.rgb = muted
+    date_run.italic = True
 
-    # === Final Decision ===
-    heading("最终决策" if is_zh else "Final Decision", level=1)
+    add_horizontal_rule()
+
+    # ----- Executive Summary table --------------------------------------
     m = req.manager or {}
-    label_value(
-        "决策" if is_zh else "Decision",
-        str(m.get("decision", "—")),
-    )
-    label_value(
-        "信心度" if is_zh else "Conviction",
-        f"{m.get('conviction', '—')}/10",
-    )
+    add_heading("一、最终决策" if is_zh else "1. Final Decision", level=1)
+
     if req.mode == "stock":
-        label_value("时间周期" if is_zh else "Time Horizon", str(m.get("time_horizon", "—")))
-        label_value("入场区间" if is_zh else "Entry Zone", str(m.get("entry_zone", "—")))
-        label_value("目标价" if is_zh else "Target Price", str(m.get("target_price", "—")))
-        label_value("止损价" if is_zh else "Stop Loss", str(m.get("stop_loss", "—")))
-        label_value("仓位建议" if is_zh else "Position Sizing", str(m.get("position_sizing", "—")))
+        rows = [
+            ("决策" if is_zh else "Recommendation",        str(m.get("decision", "—"))),
+            ("信心度" if is_zh else "Conviction",          f"{m.get('conviction', '—')}/10"),
+            ("时间周期" if is_zh else "Time Horizon",      str(m.get("time_horizon", "—"))),
+            ("入场区间" if is_zh else "Entry Zone",        str(m.get("entry_zone", "—"))),
+            ("目标价" if is_zh else "Target Price",        str(m.get("target_price", "—"))),
+            ("止损价" if is_zh else "Stop Loss",           str(m.get("stop_loss", "—"))),
+            ("仓位建议" if is_zh else "Position Sizing",   str(m.get("position_sizing", "—"))),
+        ]
     else:
-        label_value("方向" if is_zh else "Direction", str(m.get("direction", "—")))
-        label_value("结构" if is_zh else "Structure", str(m.get("structure", "—")))
-        label_value("到期日" if is_zh else "Expiration", str(m.get("expiration", "—")))
-        label_value("最大亏损" if is_zh else "Max Loss", str(m.get("max_loss", "—")))
-        label_value("最大盈利" if is_zh else "Max Profit", str(m.get("max_profit", "—")))
-        label_value("盈亏平衡" if is_zh else "Breakeven", str(m.get("breakeven", "—")))
-        label_value("胜率" if is_zh else "Win Probability", str(m.get("win_probability", "—")))
+        rows = [
+            ("策略" if is_zh else "Strategy",              str(m.get("decision", "—"))),
+            ("方向" if is_zh else "Direction",             str(m.get("direction", "—"))),
+            ("信心度" if is_zh else "Conviction",          f"{m.get('conviction', '—')}/10"),
+            ("结构" if is_zh else "Structure",             str(m.get("structure", "—"))),
+            ("到期日" if is_zh else "Expiration",          str(m.get("expiration", "—"))),
+            ("最大亏损" if is_zh else "Max Loss",          str(m.get("max_loss", "—"))),
+            ("最大盈利" if is_zh else "Max Profit",        str(m.get("max_profit", "—"))),
+            ("盈亏平衡" if is_zh else "Breakeven",         str(m.get("breakeven", "—"))),
+            ("胜率" if is_zh else "Win Probability",       str(m.get("win_probability", "—"))),
+        ]
+    add_kv_table(rows)
 
-    doc.add_paragraph()
-    heading("投资逻辑" if is_zh else "Investment Thesis", level=2)
-    para(str(m.get("thesis", "")))
+    # ----- Investment Thesis --------------------------------------------
+    if m.get("thesis"):
+        add_heading("二、投资逻辑" if is_zh else "2. Investment Thesis", level=1)
+        add_para(str(m.get("thesis", "")), size=11, space_after=8)
 
+    # ----- Catalysts / Risks --------------------------------------------
     catalysts = m.get("key_catalysts", []) or []
-    if catalysts:
-        heading("关键催化剂" if is_zh else "Key Catalysts", level=2)
-        for c in catalysts:
-            doc.add_paragraph(str(c), style="List Bullet")
-
     risks = m.get("main_risks", []) or []
-    if risks:
-        heading("主要风险" if is_zh else "Main Risks", level=2)
-        for r in risks:
-            doc.add_paragraph(str(r), style="List Bullet")
+    if catalysts or risks:
+        add_heading("三、催化剂与风险" if is_zh else "3. Catalysts & Risks", level=1)
+        if catalysts:
+            add_heading("关键催化剂" if is_zh else "Key Catalysts", level=2)
+            for c in catalysts:
+                add_bullet(str(c))
+        if risks:
+            add_heading("主要风险" if is_zh else "Main Risks", level=2)
+            for r in risks:
+                add_bullet(str(r))
 
+    # ----- Actionable Steps ---------------------------------------------
     actionable = m.get("actionable_steps", []) or []
     if actionable:
-        heading("具体执行步骤" if is_zh else "Actionable Steps", level=2)
-        for i, step in enumerate(actionable, 1):
-            doc.add_paragraph(f"{i}. {step}")
+        add_heading("四、执行步骤" if is_zh else "4. Actionable Steps", level=1)
+        add_numbered([str(s) for s in actionable])
 
+    # ----- Consensus + Debate -------------------------------------------
     consensus = m.get("consensus_score")
-    if consensus:
-        heading("共识打分" if is_zh else "Consensus Score", level=2)
-        para(str(consensus))
-
     debate = m.get("debate_summary")
-    if debate:
-        heading("辩论总结" if is_zh else "Debate Summary", level=2)
-        para(str(debate))
+    if consensus or debate:
+        add_heading("五、研究共识与辩论" if is_zh else "5. Consensus & Debate", level=1)
+        if consensus:
+            add_heading("共识打分" if is_zh else "Consensus Score", level=2)
+            add_para(str(consensus))
+        if debate:
+            add_heading("辩论复盘" if is_zh else "Debate Recap", level=2)
+            add_para(str(debate), size=10.5, space_after=8)
 
+    # ----- Per-researcher Synthesis -------------------------------------
     synthesis = m.get("synthesis", {}) or {}
     if synthesis:
-        heading("研究员综合权衡" if is_zh else "Per-Researcher Synthesis", level=2)
-        # Canonical order so the section is consistent across reports
+        add_heading("六、各研究员观点综合" if is_zh else "6. Per-Researcher Synthesis", level=1)
         order = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"]
         name_map_zh = {
-            "bull": "看多研究员", "bear": "看空研究员", "technical": "技术面研究员",
-            "fundamental": "基本面研究员", "market": "市场研究员", "industry": "行业研究员",
-            "financial": "财务研究员", "news": "新闻事件研究员", "options": "期权研究员",
+            "bull": "看多策略师", "bear": "看空策略师", "technical": "首席技术分析师",
+            "fundamental": "高级股票分析师", "market": "首席宏观策略师", "industry": "行业首席分析师",
+            "financial": "财务质量分析师", "news": "事件催化师", "options": "波动率策略师",
         }
         name_map_en = {
-            "bull": "Bull", "bear": "Bear", "technical": "Technical",
-            "fundamental": "Fundamental", "market": "Market", "industry": "Industry",
-            "financial": "Financial", "news": "News & Events", "options": "Options",
+            "bull": "Bull-Side Strategist", "bear": "Short-Side Strategist",
+            "technical": "Chief Technical Analyst", "fundamental": "Senior Equity Analyst",
+            "market": "Chief Macro Strategist", "industry": "Sector Coverage Lead",
+            "financial": "Earnings-Quality Analyst", "news": "Catalyst Analyst",
+            "options": "Volatility Strategist",
         }
+        synth_rows: list[tuple[str, str]] = []
         for key in order:
             text = synthesis.get(key)
             if text:
                 label = name_map_zh[key] if is_zh else name_map_en[key]
-                label_value(label, str(text))
+                synth_rows.append((label, str(text)))
+        add_kv_table(synth_rows)
 
-    # === Researcher Briefings ===
-    doc.add_page_break()
-    heading("研究员简报" if is_zh else "Researcher Briefings", level=1)
+    # ----- Researcher Briefings -----------------------------------------
+    if req.researchers:
+        doc.add_page_break()
+        add_heading("七、研究员独立简报" if is_zh else "7. Independent Research Briefings", level=1)
 
-    for r in req.researchers or []:
-        name = r.get("name_zh") if is_zh else r.get("name_en")
-        stance = r.get("stance", "neutral")
-        confidence = r.get("confidence", "—")
-        stance_label = (
-            {"bullish": "看多", "bearish": "看空", "neutral": "中性"}[stance]
-            if is_zh and stance in ("bullish", "bearish", "neutral")
-            else stance
-        )
-        heading(f"{r.get('icon', '•')} {name}", level=2)
-        label_value("立场" if is_zh else "Stance", str(stance_label))
-        label_value("信心度" if is_zh else "Confidence", f"{confidence}/10")
-        if r.get("headline"):
-            label_value("核心观点" if is_zh else "Headline", str(r["headline"]))
-        if r.get("evidence"):
-            label_value("依据" if is_zh else "Evidence", str(r["evidence"]))
+        stance_zh = {"bullish": "看多", "bearish": "看空", "neutral": "中性"}
+        stance_color = {
+            "bullish": RGBColor(0x16, 0x80, 0x4D),  # green
+            "bearish": RGBColor(0xC0, 0x36, 0x36),  # red
+            "neutral": RGBColor(0x6B, 0x72, 0x80),  # gray
+        }
 
-        key_points = r.get("key_points", []) or []
-        if key_points:
-            sub = doc.add_paragraph()
-            run = sub.add_run("关键要点：" if is_zh else "Key Points:")
-            run.bold = True
-            for kp in key_points:
-                doc.add_paragraph(str(kp), style="List Bullet")
+        for r in req.researchers:
+            name = r.get("name_zh") if is_zh else r.get("name_en")
+            stance = r.get("stance", "neutral")
+            confidence = r.get("confidence", "—")
+            stance_label = stance_zh.get(stance, stance) if is_zh else stance.title()
 
-        if r.get("risks"):
-            label_value("风险" if is_zh else "Risks", str(r["risks"]))
+            add_heading(f"{r.get('icon', '•')}  {name}", level=2)
 
-        doc.add_paragraph()
+            # Stance + confidence badge line
+            badge_p = doc.add_paragraph()
+            badge_p.paragraph_format.space_after = Pt(4)
+            stance_run = badge_p.add_run(f"{stance_label}")
+            stance_run.bold = True
+            stance_run.font.size = Pt(11)
+            stance_run.font.color.rgb = stance_color.get(stance, muted)
+            sep = badge_p.add_run("   ·   ")
+            sep.font.color.rgb = muted
+            conf_run = badge_p.add_run(
+                ("信心度 " if is_zh else "Confidence: ") + f"{confidence}/10"
+            )
+            conf_run.font.size = Pt(10.5)
+            conf_run.font.color.rgb = muted
+            for run in (stance_run, sep, conf_run):
+                rf = run._element.get_or_add_rPr().find(qn("w:rFonts"))
+                if rf is None:
+                    rf = OxmlElement("w:rFonts")
+                    run._element.get_or_add_rPr().append(rf)
+                rf.set(qn("w:eastAsia"), base_font)
 
-    # Footer disclaimer
-    doc.add_page_break()
+            if r.get("headline"):
+                add_para(str(r["headline"]), bold=True, size=11.5, color=accent_soft, space_after=6)
+
+            if r.get("evidence"):
+                add_heading("依据" if is_zh else "Evidence", level=3)
+                add_para(str(r["evidence"]))
+
+            key_points = r.get("key_points", []) or []
+            if key_points:
+                add_heading("关键要点" if is_zh else "Key Points", level=3)
+                for kp in key_points:
+                    add_bullet(str(kp))
+
+            if r.get("risks"):
+                add_heading("风险" if is_zh else "Risks", level=3)
+                add_para(str(r["risks"]), italic=True, color=muted)
+
+            # Debate rebuttal
+            reb = r.get("rebuttal") or {}
+            if reb:
+                add_heading(
+                    ("辩论回应" if is_zh else "Debate Response")
+                    + (f"  →  {reb.get('opponent_id')}" if reb.get("opponent_id") else ""),
+                    level=3,
+                )
+                if reb.get("rebuttal"):
+                    add_para(("反驳：" if is_zh else "Rebuttal: ") + str(reb["rebuttal"]))
+                if reb.get("reinforced_evidence"):
+                    add_para(("强化证据：" if is_zh else "Reinforced Evidence: ") + str(reb["reinforced_evidence"]))
+                if reb.get("concession"):
+                    add_para(("诚实让步：" if is_zh else "Concession: ") + str(reb["concession"]),
+                             italic=True, color=muted)
+
+    # ----- Disclaimer ----------------------------------------------------
+    doc.add_paragraph()
+    add_horizontal_rule(color=muted, thickness_pt=4)
     disclaimer = (
         "免责声明：本报告由 OptionsAI 自动生成，仅供学习与研究使用。"
         "所有内容均基于公开市场数据，不构成投资建议。投资有风险，决策需谨慎。"
@@ -283,11 +496,7 @@ def _build_word_report(req: TraderReportRequest) -> bytes:
         "All content is based on public market data and does not constitute investment advice. "
         "All investments carry risk; please make decisions carefully."
     )
-    p = doc.add_paragraph()
-    run = p.add_run(disclaimer)
-    run.italic = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = RGBColor(120, 120, 120)
+    add_para(disclaimer, italic=True, size=9, color=muted, alignment=WD_ALIGN_PARAGRAPH.CENTER)
 
     # Serialize to bytes
     buf = io.BytesIO()

@@ -18,7 +18,7 @@
 <br/>
 
 **A multi-agent AI options strategy platform for retail investors.**  
-9 specialist researchers · Bull/Bear debate · Portfolio Greeks · Scientific backtesting · Real US-market data · Bilingual UI
+9 specialist researchers · Full-team cross-examination debate · 10 LLM providers · Portfolio Greeks · Scientific backtesting · Real US-market data · Bilingual UI
 
 <br/>
 
@@ -59,36 +59,44 @@ All data is sourced from Yahoo Finance `quoteSummary` in a single parallel reque
 
 ---
 
-## 🤖 Professional Trader Agent (v2 — Marquee Feature)
+## 🤖 Professional Trader Agent (v3 — Marquee Feature)
 
 <img src="docs/images/trader-agent.svg" alt="Trader Agent" width="100%"/>
 
 <br/>
 
-The Trader Agent runs a **9-researcher debate** in parallel, then a **Portfolio Manager** synthesizes a final decision. The PM's output explicitly shows *how each researcher's voice was weighed*, so the user understands the full reasoning chain — not just the verdict.
+The Trader Agent runs a **9-researcher parallel analysis**, then a **full-team cross-examination debate**, and finally a **Portfolio Manager** who synthesizes a decision that explicitly names which researcher's argument was decisive. No PM rubber-stamping — every claim has been challenged.
 
-### The 9 Researchers
+### The 9 Researchers (Institutional-Grade)
 
-| # | Researcher | What they look at |
-|---|----------|-------------------|
+| # | Researcher | Analytical Lens |
+|---|----------|-----------------|
 | 1 | 📈 **Bull** | Strongest possible case for buying — catalysts, margin expansion, market share, valuation re-rating |
 | 2 | 📉 **Bear** | Strongest possible case against — competitive pressure, margin compression, regulatory risk |
 | 3 | 📊 **Technical** | Trend direction, MA stack, support/resistance, momentum, volume confirmation |
 | 4 | 💼 **Fundamental** | Revenue growth, profitability, valuation vs peers, balance-sheet strength, FCF |
-| 5 | 🌐 **Market** | Sector rotation, risk-on/risk-off regime, rates, VIX, USD direction |
-| 6 | 🏭 **Industry** | TAM growth, competitive landscape, technological disruption, regulatory backdrop |
+| 5 | 🌐 **Chief Macro Strategist** | 4-lens deep macro: ① broad-market index regime, ② interest-rate environment (yield curve, Fed path), ③ FX dynamics (DXY, sector FX exposure), ④ implied volatility regime (VIX, cross-asset vol) |
+| 6 | 🏭 **Sector Coverage Lead** | 5-lens industry deep-dive: ① industry lifecycle stage, ② competitive dynamics (Porter's Five Forces, market structure), ③ relative-strength vs sector peers, ④ technological disruption risk, ⑤ regulatory & policy headwinds/tailwinds |
 | 7 | 🧮 **Financial** | Earnings quality, ROIC, debt levels, working-capital efficiency, accounting red flags |
-| 8 | 📰 **News & Events** | Recent headlines, earnings, product launches, insider transactions, 30-day catalyst |
+| 8 | 📰 **News & Events** | Recent headlines, earnings, product launches, insider transactions, 30-day catalyst calendar |
 | 9 | 🎯 **Options** | IV regime, IV Rank/Percentile, ATM Greeks, GEX dealer positioning, term structure |
 
-### Bull/Bear Debate Phase
+> **Differentiation guarantee:** Each researcher is forced to draw evidence exclusively from their own data block. The macro analyst cannot borrow from the news researcher's evidence; the industry researcher cannot reuse the fundamentals researcher's numbers. This prevents the "all-similar-evidence" problem common in weaker multi-agent systems.
 
-Before the PM makes a call, the platform runs a structured **debate round**: Bull and Bear researchers challenge each other's core claims with direct rebuttals. The PM then weighs in on which side had the stronger argument. This prevents the PM from rubber-stamping a consensus it hasn't stress-tested.
+### Full-Team Cross-Examination Debate (v3)
+
+Every researcher debates — not just Bull vs. Bear. The dynamic pairing algorithm:
+1. For each researcher, finds the highest-confidence opponent **from the opposing stance**
+2. Falls back to any opposing-stance researcher if no same-confidence match
+3. Falls back to any different researcher if stances are identical (neutral vs. neutral)
+
+This means the **Macro Strategist** can challenge the **Fundamental** researcher's interest-rate assumptions, and the **Sector Lead** can rebut the **Bull**'s TAM claims. All 9 viewpoints are stress-tested before the PM weighs in.
 
 Each rebuttal card shows:
 - 🗣 The original researcher's key claim
-- ⚔️ The opposing rebuttal (1–2 sentences, specific)
-- 🏆 PM judgment on who made the stronger point
+- ⚔️ Targeted rebuttal using only the opponent's domain evidence
+- 🔖 Which researcher is being rebutted (`→ rebutting [analyst_name]`)
+- 🏆 PM judgment on the full cross-examination
 
 ### Researcher Selector
 
@@ -111,7 +119,7 @@ Run only the researchers you care about. Toggle individual researchers on/off be
 - **Background-safe streaming** — switching views mid-analysis does not cancel the SSE stream
 - **Auto-save to localStorage** — every completed analysis persisted (up to 30 entries) with timestamp + ticker + decision badge
 - **History panel** — view, re-load, or delete past analyses
-- **Word .docx download** — export the full report (manager + all 9 briefings + synthesis + steps)
+- **Word .docx download** — export the full report (manager + all 9 briefings + synthesis + steps) with **professional typesetting** — branded headings, color-coded stance badges, shaded decision table, numbered action steps
 
 ---
 
@@ -233,7 +241,7 @@ flowchart LR
     API --> CP["Company Profile<br/>Aggregator"]
     API --> PG["Portfolio Greeks<br/>BSM + Scenarios"]
     API --> DF["Data Fetcher"]
-    TA --> LLM["LLM<br/>DeepSeek / GPT-4o"]
+    TA --> LLM["LLM<br/>10 providers · OpenAI-compatible"]
     ORC --> LLM
     DF --> YF[("Yahoo Finance<br/>REST API")]
     DF --> PO[("Polygon.io<br/>backup")]
@@ -269,7 +277,7 @@ flowchart LR
 
 - Python **3.12+**
 - Node.js **18+**
-- A [DeepSeek](https://platform.deepseek.com) or [OpenAI](https://platform.openai.com) API key
+- An API key from any [supported LLM provider](#-10-supported-llm-providers) — DeepSeek is recommended for cost efficiency
 
 ### 1 · Clone and configure
 
@@ -326,13 +334,30 @@ Open **[http://localhost:3000](http://localhost:3000)**, search a US ticker like
 
 | Variable | Required | Description | Default |
 |----------|:--------:|-------------|---------|
-| `DEEPSEEK_API_KEY` | ✅ | LLM API key (any OpenAI-compatible) | — |
-| `DEEPSEEK_BASE_URL` | ✅ | LLM endpoint | `https://api.deepseek.com/v1` |
+| `DEEPSEEK_API_KEY` | ✅ | LLM API key (any OpenAI-compatible provider) | — |
+| `DEEPSEEK_BASE_URL` | ✅ | LLM endpoint URL | `https://api.deepseek.com/v1` |
 | `POLYGON_API_KEY` | ☑️ | Polygon.io backup data | — |
 | `HOST` | ➖ | Backend bind address | `0.0.0.0` |
 | `PORT` | ➖ | Backend port | `8000` |
 
-You can also swap LLM providers at runtime via the **⚙️ Settings** panel in the UI — no restart needed. Supports DeepSeek, GPT-4o, Claude (via OpenAI-compatible proxies), or any local model via Ollama.
+### 🔌 10 Supported LLM Providers
+
+All providers use the **OpenAI-compatible `/v1/chat/completions`** protocol — switch at runtime from the **⚙️ Settings** panel, no restart needed.
+
+| Provider | Model | Get API Key |
+|----------|-------|-------------|
+| **DeepSeek** | `deepseek-chat` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| **OpenAI** | `gpt-4o` | [platform.openai.com](https://platform.openai.com/api-keys) |
+| **Anthropic (Claude)** | `claude-sonnet-4-5` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| **Google Gemini** | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| **Kimi (Moonshot)** | `moonshot-v1-32k` | [platform.moonshot.cn](https://platform.moonshot.cn/console/api-keys) |
+| **Qwen (Alibaba)** | `qwen-plus` | [bailian.console.aliyun.com](https://bailian.console.aliyun.com/) |
+| **MiniMax** | `abab6.5s-chat` | [minimaxi.com](https://www.minimaxi.com/) |
+| **Zhipu GLM** | `glm-4-plus` | [bigmodel.cn](https://bigmodel.cn/) |
+| **Doubao (ByteDance)** | `doubao-pro-32k` | [console.volcengine.com](https://console.volcengine.com/) |
+| **Custom** | *(any model name)* | Any OpenAI-compatible endpoint (Ollama, LM Studio, etc.) |
+
+The Settings panel shows the **"Get API key →"** link for each provider and remembers your last-used provider between sessions.
 
 ---
 
@@ -456,13 +481,18 @@ All data is fetched from real public sources. No mock data or fabricated numbers
 - [x] Candlestick chart with MA overlays and trend-line drawing
 - [x] Full options chain — Greeks view + Probability view + beginner tooltips
 - [x] Multi-agent AI Chat pipeline — Researcher → Analyst → Verifier
-- [x] **Trader Agent v2 — 9 specialist researchers + Portfolio Manager**
-- [x] **Bull/Bear structured debate phase with per-claim rebuttals**
+- [x] **Trader Agent v3 — 9 institutional-grade researchers + Portfolio Manager**
+- [x] **Chief Macro Strategist** — 4-lens macro analysis (index regime, rates, FX, vol)
+- [x] **Sector Coverage Lead** — 5-lens industry analysis (lifecycle, Porter's Five Forces, relative strength, disruption, regulation)
+- [x] **Full-team cross-examination debate** — all 9 researchers debate, dynamic pairing by opposing stance
+- [x] **Anti-similarity enforcement** — each researcher locked to own evidence block, no shared evidence
 - [x] **Researcher selector** — run any subset of the 9 to save LLM cost
 - [x] **Per-researcher synthesis + actionable steps + consensus score**
 - [x] **Background-safe analysis (Zustand store)** — survives view switches
 - [x] **Saved analysis history** — auto-persisted to localStorage
-- [x] **Word .docx report download** — full Trader Agent export
+- [x] **Professional Word .docx report** — branded headings, stance badges, shaded K-V table, numbered steps
+- [x] **10 LLM providers** — DeepSeek, OpenAI, Claude, Gemini, Kimi, Qwen, MiniMax, Zhipu, Doubao, Custom
+- [x] **Dynamic provider UI** — in-app "Get API key →" links, provider selector grid, no restart needed
 - [x] **Company profile card** — logo, sector, 18 metrics, 52w range, business summary
 - [x] **Portfolio Greeks dashboard** — Δ/Γ/Θ/ν aggregation + 8 scenario shocks
 - [x] **Scientific backtest metrics** — Sharpe/Sortino/Calmar/MDD/WinRate/ProfitFactor
@@ -517,7 +547,7 @@ git push origin feat/your-feature
 
 <div align="center">
 
-**Built with ❤️ using FastAPI · Next.js · DeepSeek · Yahoo Finance · python-docx**
+**Built with ❤️ using FastAPI · Next.js · 10 LLM Providers · Yahoo Finance · python-docx**
 
 If this project helped you, consider giving it a ⭐
 

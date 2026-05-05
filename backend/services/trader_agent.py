@@ -111,36 +111,84 @@ RESEARCHER_SPECS = {
         ),
     },
     "market": {
-        "name_en": "Market Researcher",
-        "name_zh": "市场研究员",
+        "name_en": "Chief Macro Strategist",
+        "name_zh": "首席宏观策略师",
         "icon": "🌐",
         "color": "cyan",
         "role_en": (
-            "You are a macro/market researcher. Place this stock in the broader market context: "
-            "sector rotation, market breadth, risk-on vs risk-off regime, interest-rate environment, "
-            "VIX level, USD direction. Determine whether macro is a tailwind or headwind for this name."
+            "You are the Chief Macro Strategist — think Stanley Druckenmiller / Mike Wilson. "
+            "Your job is NOT to repeat company-specific bull/bear points. You MUST analyse the "
+            "broader regime through FOUR distinct lenses, and connect each one back to this "
+            "ticker:\n"
+            " 1. INDEX BREADTH & RISK APPETITE — SPY/QQQ trajectory today and over the last "
+            "    30/90 days, leadership concentration, advance/decline tone. Is the tape "
+            "    risk-on, risk-off, or rotating?\n"
+            " 2. RATES & LIQUIDITY — US 10Y yield level and direction, real yields, TLT tape, "
+            "    yield-curve shape, Fed policy stance. Do rates support or punish this name's "
+            "    duration / multiple?\n"
+            " 3. CURRENCY & GLOBAL FLOWS — DXY direction, EM/DM flows, FX impact on this "
+            "    company's revenue mix. Strong USD = headwind for which lines?\n"
+            " 4. VOLATILITY & POSITIONING — VIX level vs realized, term structure, retail "
+            "    vs institutional positioning if visible.\n"
+            "Conclude with: macro is a TAILWIND / NEUTRAL / HEADWIND for this name, AND why "
+            "this regime favours (or punishes) the company's specific sensitivities. Cite "
+            "actual numbers from the data block — no boilerplate."
         ),
         "role_zh": (
-            "你是宏观市场研究员。请把该股票放在更广阔的市场背景下：行业轮动、市场广度、"
-            "风险偏好状态（risk-on/risk-off）、利率环境、VIX 水平、美元走向。"
-            "判断宏观对这只股票是顺风还是逆风。"
+            "你是首席宏观策略师——对标 Druckenmiller / Mike Wilson 这一档。"
+            "你的任务**不是**重复公司层面的多空观点。你必须从下列**四个独立维度**"
+            "分析宏观环境，并把每一条都对应到当前这只股票：\n"
+            " 1. 大盘广度与风险偏好——SPY/QQQ 当日及近 30/90 天走势、领涨股集中度、"
+            "    涨跌家数对比。当前是 risk-on、risk-off，还是行业轮动？\n"
+            " 2. 利率与流动性——美 10 年期名义/实际收益率水平与方向、TLT 走势、收益率曲线形态、"
+            "    联储政策立场。利率环境对该股久期/估值倍数是支撑还是压制？\n"
+            " 3. 汇率与全球资金——DXY 走向、新兴/发达市场资金流向、外汇敞口对公司收入结构的影响。"
+            "    强美元会对哪条业务线形成逆风？\n"
+            " 4. 波动率与持仓——VIX 相对已实现波动率、期限结构、散户与机构持仓信号。\n"
+            "最后给出：宏观环境对该股是**顺风 / 中性 / 逆风**，并解释当前 regime 为何"
+            "**有利或不利于**这家公司的特定敏感度。**必须引用数据块里的具体数字**——禁止套话。"
         ),
     },
     "industry": {
-        "name_en": "Industry Researcher",
-        "name_zh": "行业研究员",
+        "name_en": "Sector Coverage Lead",
+        "name_zh": "行业首席分析师",
         "icon": "🏭",
         "color": "amber",
         "role_en": (
-            "You are an industry analyst. Analyse the company's industry: TAM growth, "
-            "competitive landscape, key players, technological disruption, regulatory backdrop. "
-            "Determine whether this company is a leader, challenger, or laggard within its industry, "
-            "and whether the industry itself is in a favourable phase."
+            "You are the Sector Coverage Lead — think Dan Ives on tech, Adam Jonas on autos. "
+            "Stop describing competitors generically. You MUST work through FIVE concrete "
+            "industry lenses:\n"
+            " 1. INDUSTRY LIFE-CYCLE — is this sector in secular growth, late-cycle expansion, "
+            "    consolidation, or structural decline? Cite the multi-year demand trend driving "
+            "    your call (e.g. AI capex super-cycle, EV penetration curve, GLP-1 TAM).\n"
+            " 2. COMPETITIVE STRUCTURE — Porter-style: is supplier power, buyer power, or new "
+            "    entrants the dominant pressure? Identify the 2-3 closest comparables and how "
+            "    this name stacks on share, pricing power, and gross margin.\n"
+            " 3. RELATIVE STRENGTH vs SECTOR ETF — quote today's move and the multi-week trend "
+            "    vs the sector ETF in the data block. Outperforming or breaking down?\n"
+            " 4. INNOVATION & DISRUPTION — what technology / business-model shift is "
+            "    re-pricing the sector right now (AI, automation, regulation, geopolitics)?\n"
+            " 5. REGULATORY BACKDROP — antitrust, tariffs, export controls, drug pricing, "
+            "    capital rules — whichever applies. Tailwind or headwind for THIS name?\n"
+            "Final verdict: this company is the LEADER / CHALLENGER / LAGGARD in a "
+            "FAVOURABLE / NEUTRAL / DETERIORATING industry phase. Be specific about why."
         ),
         "role_zh": (
-            "你是行业研究员。请分析公司所处行业：市场总量增长、竞争格局、主要玩家、"
-            "技术颠覆、监管背景。判断该公司在行业内是领导者、挑战者还是落后者，"
-            "以及行业自身是否处于有利阶段。"
+            "你是行业首席分析师——对标 Dan Ives（科技）/ Adam Jonas（汽车）这一档。"
+            "不要泛泛描述竞争对手。你必须从下列**五个具体维度**分析所在行业：\n"
+            " 1. 行业生命周期——该行业目前处于**长期增长 / 成熟扩张 / 整合期 / 结构性衰退**"
+            "    的哪个阶段？引用驱动你判断的多年需求趋势（如 AI 资本开支超级周期、电车渗透曲线、"
+            "    GLP-1 市场空间等）。\n"
+            " 2. 竞争结构——按波特五力：供应商议价、客户议价、新进入者哪一项是主导压力？"
+            "    指出 2-3 家最直接的可比公司，比较其市占率、定价权与毛利率。\n"
+            " 3. 相对板块强弱——引用数据块中该股**相对所属板块 ETF**的当日走势及近期趋势。"
+            "    跑赢板块还是跌破板块？\n"
+            " 4. 创新与颠覆——当前是哪种**技术或商业模式变革**在重定价整个行业？"
+            "    （AI、自动化、监管、地缘政治）\n"
+            " 5. 监管背景——反垄断、关税、出口管制、药价、资本要求等——挑相关的讲。"
+            "    对该公司是顺风还是逆风？\n"
+            "最终结论：该公司在**有利 / 中性 / 恶化**的行业阶段中处于**领导者 / 挑战者 / 落后者**位置。"
+            "必须具体说明理由。"
         ),
     },
     "financial": {
@@ -220,6 +268,18 @@ Even though the JSON keys are in English, the VALUES (headline, key_points items
 evidence, risks) must all be in English prose. No Chinese characters. No mixed-language
 sentences.
 
+WRITING STANDARD: Institutional sell-side voice. Be specific, decisive, numeric.
+Cite at least two concrete data points (price, multiple, %, ratio) in `evidence`.
+Avoid filler such as "could potentially", "might be", "in some cases" — make the
+call sharp. No retail clichés ("to the moon", "yolo", "bagholder").
+
+DIFFERENTIATION (CRITICAL): Stay strictly inside YOUR specialty. Do NOT borrow
+generic catalysts like "earnings beat", "AI tailwind", or "valuation re-rating"
+that any other researcher could have written. Your evidence MUST be uniquely
+sourced from the data block tagged "your specialty" (technical / fundamental /
+macro / industry / financial / etc.) — that is what makes your contribution
+non-redundant.
+
 Return ONLY a valid JSON object — no preamble, no closing remarks, no markdown fences.
 
 Schema:
@@ -228,7 +288,7 @@ Schema:
   "confidence": <integer 1-10>,
   "headline": "<one-line summary, <=80 chars, ENGLISH>",
   "key_points": ["<point 1, ENGLISH>", "<point 2, ENGLISH>", "<point 3, ENGLISH>"],
-  "evidence": "<2-3 sentences citing specific numbers from the data, ENGLISH>",
+  "evidence": "<2-3 sentences citing at least two specific numbers from the data, ENGLISH>",
   "risks": "<1-2 sentences on what could invalidate this view, ENGLISH>"
 }
 
@@ -242,6 +302,16 @@ RESEARCHER_OUTPUT_INSTRUCTION_ZH = """
 即使 JSON 键名是英文（headline、key_points、evidence、risks），但**值必须全部是中文**。
 不要在同一段话里混合英文短语。专业术语首次出现时可在中文后用括号标注英文，但主体必须是中文。
 
+写作标准：机构卖方研究风格——专业、果断、引用数字。
+`evidence` 字段中**至少引用两个具体数据点**（价格、估值倍数、百分比、比率）。
+避免"或许"、"可能"、"在某些情况下"之类含糊措辞，态度必须明确。
+禁止使用散户化口吻（"冲冲冲"、"满仓干"、"接飞刀"等）。
+
+差异化要求（关键）：严格围绕**你自己的专业角色**输出。
+**不要**写出"业绩超预期"、"AI 顺风"、"估值修复"这种**任何研究员都能写**的通用催化剂。
+你的 `evidence` 必须**只引用标记为"你的专属数据"的数据块**（技术指标 / 基本面指标 /
+宏观市场 / 行业板块 / 财务质量等）——这才能让你的输出与其他研究员**不重复**。
+
 只返回一个有效的 JSON 对象——不要前言、不要总结、不要 markdown 代码块。
 
 Schema:
@@ -250,7 +320,7 @@ Schema:
   "confidence": <1 到 10 的整数>,
   "headline": "<一句话总结，不超过 40 字，中文>",
   "key_points": ["<要点 1，中文>", "<要点 2，中文>", "<要点 3，中文>"],
-  "evidence": "<2-3 句话，引用数据中的具体数字，中文>",
+  "evidence": "<2-3 句话，至少引用两个数据中的具体数字，中文>",
   "risks": "<1-2 句话说明什么会推翻此观点，中文>"
 }
 
@@ -750,8 +820,9 @@ class TraderAgentPipeline:
                 rebuttal_text = reb.get("rebuttal", "")
                 reinforced = reb.get("reinforced_evidence", "")
                 concession = reb.get("concession", "")
+                opp_id = reb.get("opponent_id", "?")
                 debate_lines.append(
-                    f"\n[{rid}] {name} debate response:\n"
+                    f"\n[{rid}] {name} (rebutting {opp_id}):\n"
                     f"  Rebuttal: {rebuttal_text}\n"
                     f"  Reinforced evidence: {reinforced}\n"
                     f"  Concession: {concession}"
@@ -760,8 +831,9 @@ class TraderAgentPipeline:
         debate_section = ""
         if debate_lines:
             debate_section = (
-                ("\n\n## 多空辩论（看多 / 看空互相反驳）\n" if locale == "zh"
-                 else "\n\n## Debate (Bull vs Bear cross-examination)\n")
+                ("\n\n## 全员辩论（每位研究员都对一位观点不同的同事进行交叉质询）\n"
+                 if locale == "zh"
+                 else "\n\n## Full-Team Debate (every researcher cross-examines a peer with a differing view)\n")
                 + "\n".join(debate_lines)
             )
 
@@ -776,7 +848,7 @@ class TraderAgentPipeline:
                 "2. 必须填写 synthesis 字段，逐个解释每位研究员的观点如何影响最终决策；\n"
                 "3. consensus_score 字段需要明确数清楚有多少位看多/看空/中性；\n"
                 "4. thesis 必须 5-7 句话，写出完整的推理链条；\n"
-                "5. debate_summary 必须详述最强多头与最强空头的论点，以及最终为何选边；\n"
+                "5. debate_summary 必须复盘**全员交叉辩论**——哪条反驳最致命、哪个让步最有说服力、辩论结束后各研究员最终落在哪一边；\n"
                 "6. actionable_steps 至少 3 步具体执行步骤；\n"
                 "7. 不要骑墙——给出明确的方向和数字。\n"
                 "8. 所有输出必须使用简体中文。"
@@ -799,7 +871,7 @@ class TraderAgentPipeline:
                 "2. You MUST fill the `synthesis` object: explain how each researcher's view influenced the call.\n"
                 "3. `consensus_score` should explicitly count how many lean bullish / bearish / neutral.\n"
                 "4. `thesis` must be 5-7 sentences with a complete reasoning chain.\n"
-                "5. `debate_summary` must walk through the strongest bull and bear arguments and explain who won.\n"
+                "5. `debate_summary` must summarise the full-team cross-examination — the sharpest rebuttal that landed, the most credible concession, and which desks ended up on which side after the debate.\n"
                 "6. `actionable_steps` must contain at least 3 concrete steps.\n"
                 "7. Do not sit on the fence — give a clear direction and concrete numbers.\n"
                 "8. All output values must be in English only."
@@ -893,9 +965,11 @@ class TraderAgentPipeline:
 
         if is_zh:
             role = (
-                f"你是 {own_name}。你刚发表了你的第一轮观点，现在 {opp_name} 发表了相反的观点。"
-                "你需要用一段简短的辩论回应反驳他们，但要诚实——必须承认对方至少一个合理的点。"
-                "然后用新的证据强化你自己的论点。"
+                f"你是 {own_name}。你刚发表了你的第一轮观点，现在 {opp_name} 发表了一个不同的观点。"
+                "你需要从**你自己专业角度**出发，给出一段简短的辩论回应：反驳他们最强的一点，"
+                "但要诚实——必须承认对方至少一个合理之处。"
+                "然后用**你专业领域内的新数据**强化你自己的论点。"
+                "不要重复已经说过的话，也不要侵入对方的专业领域去抢话题。"
             )
             instruction = (
                 "只返回 JSON：\n"
@@ -907,9 +981,11 @@ class TraderAgentPipeline:
             )
         else:
             role = (
-                f"You are the {own_name}. You just published your first-round view; now the {opp_name} has published the opposing view. "
-                "Write a short debate response: rebut their strongest point, but be intellectually honest — you MUST concede at least one point they got right. "
-                "Then reinforce your own thesis with sharper evidence."
+                f"You are the {own_name}. You just published your first-round view; now the {opp_name} has published a differing view. "
+                "Write a short debate response from YOUR specialty's perspective: rebut their strongest point, but be intellectually honest — "
+                "you MUST concede at least one point they got right. Then reinforce your own thesis with NEW evidence drawn strictly from your "
+                "domain (technical / macro / fundamental / industry / etc.). Do not repeat your first-round prose, and do not invade your "
+                "opponent's domain to score points."
             )
             instruction = (
                 "Return JSON only:\n"
@@ -1026,23 +1102,66 @@ class TraderAgentPipeline:
             order = list(RESEARCHER_SPECS.keys())
             researcher_results.sort(key=lambda r: order.index(r["id"]) if r["id"] in order else 999)
 
-            # 3. Debate phase — runs ONLY if BOTH Bull and Bear were selected
+            # 3. Debate phase — every researcher cross-examines a peer.
+            #
+            # Pairing strategy: prefer an opposing-stance peer; if none exists,
+            # pair with a different-domain peer so the rebuttal still adds new
+            # information rather than rephrasing the same view.
             yield self._sse({"type": "phase", "phase": "debate_start"})
-            bull_view = next((r for r in researcher_results if r["id"] == "bull"), None)
-            bear_view = next((r for r in researcher_results if r["id"] == "bear"), None)
             rebuttals: dict[str, dict] = {}
-            if bull_view and bear_view:
-                bull_rebuttal_task = self._call_debate_rebuttal("bull", bull_view, bear_view, ctx, mode, locale)
-                bear_rebuttal_task = self._call_debate_rebuttal("bear", bear_view, bull_view, ctx, mode, locale)
-                bull_reb, bear_reb = await asyncio.gather(
-                    bull_rebuttal_task, bear_rebuttal_task, return_exceptions=True,
-                )
-                if not isinstance(bull_reb, Exception) and bull_reb:
-                    rebuttals["bull"] = bull_reb
-                    yield self._sse({"type": "rebuttal", "id": "bull", "rebuttal": bull_reb})
-                if not isinstance(bear_reb, Exception) and bear_reb:
-                    rebuttals["bear"] = bear_reb
-                    yield self._sse({"type": "rebuttal", "id": "bear", "rebuttal": bear_reb})
+            results_by_id = {r["id"]: r for r in researcher_results}
+
+            def _opposite_stance(s: str) -> str:
+                return {"bullish": "bearish", "bearish": "bullish"}.get(s, "neutral")
+
+            debate_pairs: list[tuple[str, str]] = []
+            for r in researcher_results:
+                rid = r["id"]
+                own_stance = r.get("stance", "neutral")
+                target_stance = _opposite_stance(own_stance)
+                # Prefer a researcher with opposite stance + highest confidence.
+                candidates = [
+                    o for o in researcher_results
+                    if o["id"] != rid and o.get("stance") == target_stance
+                ]
+                if not candidates and own_stance == "neutral":
+                    # Neutral peers debate the loudest non-neutral voice
+                    candidates = [
+                        o for o in researcher_results
+                        if o["id"] != rid and o.get("stance") in ("bullish", "bearish")
+                    ]
+                if not candidates:
+                    # No direct opposite — pair with the most confident other researcher.
+                    candidates = [o for o in researcher_results if o["id"] != rid]
+                if not candidates:
+                    continue
+                opponent = max(candidates, key=lambda o: o.get("confidence", 0) or 0)
+                debate_pairs.append((rid, opponent["id"]))
+
+            if debate_pairs:
+                tasks = [
+                    self._call_debate_rebuttal(
+                        own_id,
+                        results_by_id[own_id],
+                        results_by_id[opp_id],
+                        ctx,
+                        mode,
+                        locale,
+                    )
+                    for own_id, opp_id in debate_pairs
+                ]
+                outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                for (own_id, opp_id), outcome in zip(debate_pairs, outcomes):
+                    if isinstance(outcome, Exception) or not outcome:
+                        continue
+                    outcome["opponent_id"] = opp_id
+                    rebuttals[own_id] = outcome
+                    yield self._sse({
+                        "type": "rebuttal",
+                        "id": own_id,
+                        "opponent_id": opp_id,
+                        "rebuttal": outcome,
+                    })
 
             # Attach rebuttals onto the researcher records so PM and frontend can both see them
             for r in researcher_results:

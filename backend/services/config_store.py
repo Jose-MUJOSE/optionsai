@@ -13,18 +13,83 @@ _DEFAULT_CONFIG = {
     "data_provider": "yahoo",  # yahoo / polygon
     "polygon_api_key": "",
     "tradier_api_key": "",
-    "llm_provider": "deepseek",  # deepseek / openai / anthropic / custom
+    # Any of the keys in LLM_PRESETS, or "custom".
+    "llm_provider": "deepseek",
     "llm_api_key": "",
     "llm_base_url": "",
     "llm_model": "",
 }
 
-# Provider presets
-LLM_PRESETS = {
-    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
-    "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o"},
-    "anthropic": {"base_url": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-20250514"},
-    "custom": {"base_url": "", "model": ""},
+# Provider presets — every entry exposes an OpenAI-compatible /chat/completions
+# endpoint so the same OpenAI SDK client can talk to all of them. The
+# `signup_url` is shown in the settings UI as a "Get API key →" link so a
+# brand-new user can complete the loop in two clicks.
+LLM_PRESETS: dict[str, dict[str, str]] = {
+    "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "label": "DeepSeek",
+        "signup_url": "https://platform.deepseek.com/api_keys",
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o",
+        "label": "OpenAI",
+        "signup_url": "https://platform.openai.com/api-keys",
+    },
+    "anthropic": {
+        # Anthropic now exposes an OpenAI-compatible endpoint at /v1.
+        "base_url": "https://api.anthropic.com/v1",
+        "model": "claude-sonnet-4-5-20250929",
+        "label": "Anthropic",
+        "signup_url": "https://console.anthropic.com/settings/keys",
+    },
+    "gemini": {
+        # Google AI Studio's OpenAI-compatible bridge.
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model": "gemini-2.5-flash",
+        "label": "Google Gemini",
+        "signup_url": "https://aistudio.google.com/app/apikey",
+    },
+    "kimi": {
+        "base_url": "https://api.moonshot.cn/v1",
+        "model": "moonshot-v1-32k",
+        "label": "Kimi (Moonshot)",
+        "signup_url": "https://platform.moonshot.cn/console/api-keys",
+    },
+    "qwen": {
+        # Aliyun Bailian / DashScope OpenAI-compatible endpoint.
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen-plus",
+        "label": "Qwen (Alibaba)",
+        "signup_url": "https://bailian.console.aliyun.com/",
+    },
+    "minimax": {
+        "base_url": "https://api.minimax.chat/v1",
+        "model": "abab6.5s-chat",
+        "label": "MiniMax",
+        "signup_url": "https://www.minimaxi.com/user-center/basic-information/interface-key",
+    },
+    "zhipu": {
+        # GLM-4 — OpenAI-compatible endpoint at /api/paas/v4.
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4-plus",
+        "label": "Zhipu GLM",
+        "signup_url": "https://bigmodel.cn/usercenter/apikeys",
+    },
+    "doubao": {
+        # ByteDance Volcano Engine Ark.
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "model": "doubao-pro-32k",
+        "label": "Doubao (ByteDance)",
+        "signup_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+    },
+    "custom": {
+        "base_url": "",
+        "model": "",
+        "label": "Custom (OpenAI-compatible)",
+        "signup_url": "",
+    },
 }
 
 

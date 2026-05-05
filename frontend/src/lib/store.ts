@@ -9,8 +9,20 @@ import type {
   TrendExpectation,
   ChatMessage,
 } from "@/types";
-import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent, fetchCompanyProfile, fetchFinancials, fetchAnalystRatings, type CompanyProfile, type FinancialsResponse, type AnalystRatingsResponse } from "./api";
+import { fetchMarketData, fetchStrategies, streamChat, fetchForecast, streamTopPick, fetchMarketIntel, fetchOptionsSnapshot, fetchIVTermStructure, fetchOHLCV, fetchFullOptionsChain, fetchShortData, fetchEarningsMoves, fetchGEX, fetchUnusualFlow, streamTraderAgent, fetchCompanyProfile, fetchFinancials, fetchAnalystRatings, type CompanyProfile, type FinancialsResponse, type AnalystRatingsResponse, type PatternScanResponse } from "./api";
 import type { ForecastItem, MarketIntelResponse, OptionsSnapshot, IVTermItem, OHLCVBar, FullOptionsChain, ShortDataResponse, EarningsMovesResponse, GEXResponse, UnusualFlowResponse, ResearcherResult, ManagerDecision, TraderMode } from "./api";
+import type { CategoryKey } from "./tickerUniverse";
+
+/** Persisted state for the Pattern Scanner so the user's selections and last
+ *  scan survive a round-trip into the dashboard view and back. */
+export interface PatternScanState {
+  selectedPatterns: Set<string>;
+  directionFilter: "all" | "bullish" | "bearish" | "neutral";
+  selectedCategories: Set<CategoryKey>;
+  customTickers: string;
+  response: PatternScanResponse | null;
+  showAllPatterns: boolean;
+}
 
 /** A completed Trader Agent analysis saved for re-viewing later. */
 export interface TraderHistoryEntry {
@@ -221,6 +233,10 @@ interface AppState {
   analystRatings: AnalystRatingsResponse | null;
   isAnalystRatingsLoading: boolean;
   fetchAnalystRatings: (ticker: string) => Promise<void>;
+
+  // Pattern scanner — persisted across view changes
+  patternScanState: PatternScanState;
+  setPatternScanField: (patch: Partial<PatternScanState>) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -307,6 +323,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Analyst ratings — consensus + per-firm rating changes
   analystRatings: null as AnalystRatingsResponse | null,
   isAnalystRatingsLoading: false,
+
+  // Pattern scanner — initial selections kept here so navigating to the
+  // dashboard and back preserves what the user picked and the last scan.
+  patternScanState: {
+    selectedPatterns: new Set<string>(),
+    directionFilter: "all" as "all" | "bullish" | "bearish" | "neutral",
+    selectedCategories: new Set<CategoryKey>(["mag7"]),
+    customTickers: "",
+    response: null as PatternScanResponse | null,
+    showAllPatterns: false,
+  },
+  setPatternScanField: (patch: Partial<PatternScanState>) => {
+    set((s) => ({ patternScanState: { ...s.patternScanState, ...patch } }));
+  },
 
   // Trader Agent — initial state
   traderTicker: null,
@@ -819,13 +849,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setLocale: (locale: Locale) => {
     set({ locale });
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem("optionsai.locale", locale);
-      } catch {
-        // ignore quota errors
-      }
-    }
     // 切换语言后重新获取 AI 内容
     const { ticker, marketData, strategies } = get();
     if (ticker && marketData) {
@@ -949,11 +972,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           const others = prev.filter((p) => p.id !== event.result.id);
           set({ traderResearchers: [...others, event.result] });
         } else if (event.type === "rebuttal") {
-          // Attach rebuttal onto the matching researcher record (Bull or Bear)
+          // Attach rebuttal onto the matching researcher record. Every
+          // researcher (not just Bull/Bear) now files a rebuttal targeting
+          // a peer with a differing view. opponent_id rides on the rebuttal
+          // payload so the UI can show "X rebutting Y".
           const prev = get().traderResearchers;
+          const stamped = { ...event.rebuttal, opponent_id: event.opponent_id };
           set({
             traderResearchers: prev.map((p) =>
-              p.id === event.id ? { ...p, rebuttal: event.rebuttal } : p,
+              p.id === event.id ? { ...p, rebuttal: stamped } : p,
             ),
           });
         } else if (event.type === "manager") {
