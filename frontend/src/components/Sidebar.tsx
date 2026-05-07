@@ -32,16 +32,20 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
 
   const compact = width < 190; // collapse labels below this width
 
+  // Order is intentional: stock research → options research → options strategies
+  // (renamed from "策略" to "期权策略" to make the link explicit) → analyst →
+  // discovery tools → utilities. Strategies lives directly under options
+  // because it builds on the options chain the user just looked at.
   const items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string; badge?: string }> = [
     { id: "dashboard",  icon: LayoutDashboard, label: locale === "zh" ? "股票研究" : "Stock Research" },
-    { id: "options",    icon: Sigma,           label: locale === "zh" ? "期权研究" : "Options Research", badge: "NEW" },
+    { id: "options",    icon: Sigma,           label: locale === "zh" ? "期权研究" : "Options Research" },
+    { id: "strategies", icon: Target,          label: locale === "zh" ? "期权策略" : "Options Strategies" },
     { id: "trader",     icon: Brain,           label: t("trader.title",   locale) },
-    { id: "strategies", icon: Target,          label: t("nav.strategies", locale) },
     { id: "watchlist",  icon: Star,            label: t("nav.watchlist",  locale) },
     { id: "news",       icon: Newspaper,       label: t("nav.news",       locale) },
     { id: "paper",      icon: FolderOpen,      label: locale === "zh" ? "模拟仓位" : "Paper" },
     { id: "scanner",    icon: Radar,           label: locale === "zh" ? "期权策略扫描器" : "Options Scanner" },
-    { id: "patterns",   icon: Activity,        label: locale === "zh" ? "形态选股" : "Patterns", badge: "NEW" },
+    { id: "patterns",   icon: Activity,        label: locale === "zh" ? "形态选股" : "Patterns" },
     { id: "alerts",     icon: Bell,            label: locale === "zh" ? "事件提醒" : "Alerts" },
   ];
 

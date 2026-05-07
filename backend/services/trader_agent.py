@@ -911,12 +911,95 @@ def format_researcher_specific_context(ctx: dict, researcher_id: str, mode: Anal
 # ============================================================
 
 class TraderAgentPipeline:
-    """Orchestrates the 9-researcher debate + portfolio-manager decision."""
+    """Orchestrates the 10-analyst debate + portfolio-manager decision.
+
+    To avoid hitting rate limits when fanning out 10 LLM calls at once, the
+    pipeline serialises calls behind a semaphore (max 4 concurrent) and
+    retries each call up to 5 times with exponential backoff. This means
+    no single call is "lost" to a transient 429 / timeout / connection drop.
+    """
+
+    # Cap simultaneous LLM calls to avoid 429s and connection-pool exhaustion.
+    # 4 keeps throughput high while staying well under DeepSeek's per-minute
+    # request quotas. Tuned empirically — 10 concurrent reliably failed,
+    # 4 reliably succeeds.
+    MAX_CONCURRENT_LLM_CALLS = 4
+
+    # Retry policy: 5 attempts, exponential backoff with jitter so retries
+    # don't synchronise. Total worst-case wait ~30s.
+    MAX_RETRIES = 5
+    INITIAL_BACKOFF_SECONDS = 1.5
+    MAX_BACKOFF_SECONDS = 12.0
 
     def __init__(self, llm_client, model: str, fetcher: DataFetcher):
         self.client = llm_client
         self.model = model
         self.fetcher = fetcher
+        # Per-instance semaphore so concurrent runs of the pipeline (one per
+        # request) each get their own quota. NOTE: must be created lazily
+        # inside an async context — asyncio.Semaphore() at __init__ time can
+        # bind to a different loop than the one running the request.
+        self._llm_semaphore: Optional[asyncio.Semaphore] = None
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        if self._llm_semaphore is None:
+            self._llm_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_LLM_CALLS)
+        return self._llm_semaphore
+
+    async def _llm_completion_with_retry(
+        self,
+        *,
+        label: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        """Issue a chat completion under the concurrency semaphore with retry.
+
+        Returns the raw assistant content string, or "" if every retry failed.
+        Logs each attempt so failures are visible in server logs.
+        """
+        import random
+
+        sem = self._get_semaphore()
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                async with sem:
+                    resp = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=60.0,  # explicit per-call ceiling
+                    )
+                content = resp.choices[0].message.content or ""
+                if content.strip():
+                    return content
+                # Empty content shouldn't happen but treat as transient.
+                last_error = RuntimeError("empty_completion")
+                _safe_log(f"[trader_agent] {label}: empty completion (attempt {attempt}/{self.MAX_RETRIES})")
+            except Exception as e:
+                last_error = e
+                _safe_log(
+                    f"[trader_agent] {label}: API attempt {attempt}/{self.MAX_RETRIES} "
+                    f"failed — {type(e).__name__}: {e}"
+                )
+
+            if attempt < self.MAX_RETRIES:
+                # Exponential backoff with ±20% jitter to prevent retry storms
+                backoff = min(
+                    self.MAX_BACKOFF_SECONDS,
+                    self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                )
+                backoff *= 1.0 + (random.random() - 0.5) * 0.4
+                await asyncio.sleep(backoff)
+
+        _safe_log(
+            f"[trader_agent] {label}: gave up after {self.MAX_RETRIES} attempts "
+            f"(last error: {type(last_error).__name__ if last_error else 'unknown'})"
+        )
+        return ""
 
     async def _call_researcher(
         self,
@@ -946,25 +1029,23 @@ class TraderAgentPipeline:
 
         parsed: dict = {}
         error_label: Optional[str] = None
-        try:
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.4,
-                max_tokens=900,  # roomy enough for the v3 JSON schema with citations
-            )
-            content = resp.choices[0].message.content or ""
+
+        content = await self._llm_completion_with_retry(
+            label=spec_key,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=900,
+        )
+        if content:
             parsed = self._parse_json(content)
             if not parsed:
                 error_label = "json_parse_failed"
-                # Log raw content for diagnostics — keeps us from chasing ghosts.
                 _safe_log(f"[trader_agent] {spec_key}: JSON parse failed. Raw: {content[:300]!r}")
-        except Exception as e:
-            error_label = type(e).__name__
-            _safe_log(f"[trader_agent] {spec_key}: API call failed — {error_label}: {e}")
+        else:
+            error_label = "all_retries_exhausted"
 
         # Guarantee every required field is populated so the frontend can never
         # crash on a missing `stance` etc. This is the critical fix: previously,
@@ -1110,23 +1191,20 @@ class TraderAgentPipeline:
         )
         system_prompt = f"{lang_directive}\n\n{role_intro}\n\n{instruction}"
 
-        try:
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.3,
-                max_tokens=2600,  # raised: synthesis (10) + actionable_steps + option_legs + thesis
-            )
-            content = resp.choices[0].message.content or ""
-            return self._parse_json(content)
-        except Exception as e:
+        content = await self._llm_completion_with_retry(
+            label="manager",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=2600,
+        )
+        if not content:
             return {
                 "decision": "hold",
                 "conviction": 5,
-                "thesis": f"Manager analysis unavailable: {type(e).__name__}",
+                "thesis": "Manager analysis unavailable: all retries exhausted",
                 "debate_summary": "Pipeline error",
                 "key_catalysts": [],
                 "main_risks": [],
@@ -1134,6 +1212,7 @@ class TraderAgentPipeline:
                 "actionable_steps": [],
                 "consensus_score": "",
             }
+        return self._parse_json(content)
 
     @staticmethod
     def _parse_json(text: str) -> dict:
@@ -1235,20 +1314,18 @@ class TraderAgentPipeline:
         system_prompt = f"{lang}\n\n{role}\n\n{instruction}"
         user_prompt = f"Ticker: {ticker}\n\n{own_summary}{opp_summary}\n\n{lang}"
 
-        try:
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.5,
-                max_tokens=400,
-            )
-            content = resp.choices[0].message.content or ""
-            return self._parse_json(content) or {}
-        except Exception:
+        content = await self._llm_completion_with_retry(
+            label=f"debate_{own_id}",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.5,
+            max_tokens=400,
+        )
+        if not content:
             return {}
+        return self._parse_json(content) or {}
 
     async def run(
         self,
