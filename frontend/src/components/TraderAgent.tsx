@@ -652,7 +652,10 @@ function PhaseIndicator(props: { phase: string; researchersDone: number; totalCo
 
 function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; locale: "zh" | "en" }) {
   const [expanded, setExpanded] = useState(false);
-  const stance = STANCE_STYLES[researcher.stance] ?? STANCE_STYLES.neutral;
+  // Defensively coerce — older saved analyses or transient LLM failures may
+  // produce results without a stance string; never let this crash the card.
+  const safeStance = (researcher.stance ?? "neutral") as "bullish" | "bearish" | "neutral";
+  const stance = STANCE_STYLES[safeStance] ?? STANCE_STYLES.neutral;
   const StanceIcon = stance.icon;
   // Prefer the curated front-end title (e.g. "Senior Equity Analyst") so the
   // desk name is consistent regardless of what the LLM happened to echo back.
@@ -662,7 +665,7 @@ function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; 
     : (locale === "zh" ? researcher.name_zh : researcher.name_en);
   const desk = meta ? (locale === "zh" ? meta.desk_zh : meta.desk_en) : null;
   const stanceLabel = t(
-    `trader.stance${researcher.stance.charAt(0).toUpperCase() + researcher.stance.slice(1)}` as "trader.stanceBullish",
+    `trader.stance${safeStance.charAt(0).toUpperCase() + safeStance.slice(1)}` as "trader.stanceBullish",
     locale,
   );
 

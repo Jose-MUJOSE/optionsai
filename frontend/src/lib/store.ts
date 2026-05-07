@@ -158,9 +158,9 @@ interface AppState {
   traderResearchers: ResearcherResult[];
   traderManager: ManagerDecision | null;
   traderError: string | null;
-  /** Subset of researcher IDs the user wants to run. Empty = run all 9. */
+  /** Subset of analyst IDs the user wants to run. Empty = run all 10. */
   traderSelectedResearchers: string[];
-  /** Number of researchers actually running this round (set when SSE 'selected' arrives). */
+  /** Number of analysts actually running this round (set when SSE 'selected' arrives). */
   traderActiveCount: number;
   /** Saved analyses for re-viewing later (persisted to localStorage). */
   traderHistory: TraderHistoryEntry[];
@@ -874,8 +874,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   toggleTraderResearcher: (id: string) => {
     const cur = get().traderSelectedResearchers;
-    // If empty (= all), start by removing this one. Otherwise toggle membership.
-    const ALL_IDS = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"];
+    // v3 analyst lineup — must mirror backend RESEARCHER_SPECS keys.
+    const ALL_IDS = ["quant", "technical", "fundamental", "credit", "macro", "industry", "volatility", "event", "flow", "risk"];
     let next: string[];
     if (cur.length === 0) {
       next = ALL_IDS.filter((x) => x !== id);
@@ -884,7 +884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       next = [...cur, id];
     }
-    // If all 9 are now selected, store as empty (= "all") for cleanliness
+    // If all 10 are now selected, store as empty (= "all") for cleanliness
     if (next.length === ALL_IDS.length) {
       next = [];
     }
@@ -892,7 +892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setTraderSelectedResearchers: (ids: string[]) => {
-    const ALL_IDS = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"];
+    const ALL_IDS = ["quant", "technical", "fundamental", "credit", "macro", "industry", "volatility", "event", "flow", "risk"];
     const valid = ids.filter((x) => ALL_IDS.includes(x));
     // Normalize: full set → empty = "all"
     set({ traderSelectedResearchers: valid.length === ALL_IDS.length ? [] : valid });
@@ -948,14 +948,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       traderError: null,
       // Pre-set active count so progress bar starts with right scale; backend
       // will overwrite via `selected` event with authoritative count.
-      traderActiveCount: traderSelectedResearchers.length === 0 ? 9 : traderSelectedResearchers.length,
+      traderActiveCount: traderSelectedResearchers.length === 0 ? 10 : traderSelectedResearchers.length,
     });
     try {
       for await (const event of streamTraderAgent({
         ticker,
         mode: traderMode,
         locale,
-        // Only send when user picked a subset; omitted = backend runs all 9
+        // Only send when user picked a subset; omitted = backend runs all 10
         selected_researchers: traderSelectedResearchers.length > 0 ? traderSelectedResearchers : undefined,
       })) {
         if (event.type === "phase") {

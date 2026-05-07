@@ -22,8 +22,21 @@ Pipeline phases:
 from __future__ import annotations
 
 import json
+import logging
 import asyncio
 from typing import AsyncGenerator, Literal, Optional
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _safe_log(message: str) -> None:
+    """Best-effort warning log; falls back silently on logging errors so the
+    pipeline never crashes because of an observability call."""
+    try:
+        _logger.warning(message)
+    except Exception:
+        pass
 
 from backend.services.data_fetcher import DataFetcher
 from backend.services.researcher_context import (
@@ -931,6 +944,8 @@ class TraderAgentPipeline:
         system_prompt = f"{lang_directive}\n\n{role}\n\n{instruction}"
         user_prompt = f"{context_block}\n\n{lang_directive}"
 
+        parsed: dict = {}
+        error_label: Optional[str] = None
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -939,19 +954,49 @@ class TraderAgentPipeline:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.4,
-                max_tokens=600,
+                max_tokens=900,  # roomy enough for the v3 JSON schema with citations
             )
             content = resp.choices[0].message.content or ""
             parsed = self._parse_json(content)
+            if not parsed:
+                error_label = "json_parse_failed"
+                # Log raw content for diagnostics — keeps us from chasing ghosts.
+                _safe_log(f"[trader_agent] {spec_key}: JSON parse failed. Raw: {content[:300]!r}")
         except Exception as e:
-            parsed = {
-                "stance": "neutral",
-                "confidence": 5,
-                "headline": f"[{spec.get('name_en')}] analysis unavailable",
-                "key_points": [f"Error: {type(e).__name__}"],
-                "evidence": "",
-                "risks": "",
-            }
+            error_label = type(e).__name__
+            _safe_log(f"[trader_agent] {spec_key}: API call failed — {error_label}: {e}")
+
+        # Guarantee every required field is populated so the frontend can never
+        # crash on a missing `stance` etc. This is the critical fix: previously,
+        # a silent JSON-parse failure returned a result dict missing `stance`,
+        # which crashed React on `researcher.stance.charAt(0)`.
+        defaults = {
+            "stance": "neutral",
+            "confidence": 5,
+            "headline": (
+                f"[{spec.get('name_zh') if locale == 'zh' else spec.get('name_en')}] "
+                + ("analysis unavailable" if locale != "zh" else "本轮未生成有效分析")
+            ),
+            "key_points": [
+                f"Error: {error_label}" if error_label else (
+                    "LLM returned no parsable analysis." if locale != "zh" else "本轮模型未返回可解析的分析。"
+                )
+            ],
+            "evidence": "",
+            "risks": "",
+        }
+        # parsed wins over defaults when the field is present and non-empty.
+        for k, v in defaults.items():
+            if k not in parsed or parsed[k] in (None, "", []):
+                parsed[k] = v
+        # Coerce stance to a known value to keep the frontend invariants safe.
+        if parsed.get("stance") not in ("bullish", "bearish", "neutral"):
+            parsed["stance"] = "neutral"
+        # Same for confidence — must be int 1-10.
+        try:
+            parsed["confidence"] = max(1, min(10, int(parsed.get("confidence", 5))))
+        except (ValueError, TypeError):
+            parsed["confidence"] = 5
 
         return {
             "id": spec_key,
@@ -1258,20 +1303,53 @@ class TraderAgentPipeline:
             # can scale properly (5/5 instead of 5/9).
             yield self._sse({"type": "selected", "ids": active_ids, "count": len(active_ids)})
 
-            # 2. Research phase — each researcher gets a SPECIALIZED prompt
+            # 2. Research phase — each analyst gets a SPECIALIZED prompt.
+            #
+            # CRITICAL: every analyst MUST emit a researcher event, even when
+            # the LLM call or context formatting fails. If we let an exception
+            # escape, asyncio.as_completed re-raises and we drop subsequent
+            # analysts. Wrapping each call in safe_call guarantees ALL N
+            # selected analysts produce exactly one event.
             yield self._sse({"type": "phase", "phase": "research_start"})
-            tasks = [
-                self._call_researcher(
-                    key,
-                    RESEARCHER_SPECS[key],
-                    format_researcher_specific_context(ctx, key, mode, locale),
-                    locale,
-                )
-                for key in active_ids
-            ]
+
+            async def safe_call(key: str) -> dict:
+                spec = RESEARCHER_SPECS[key]
+                try:
+                    block = format_researcher_specific_context(ctx, key, mode, locale)
+                    return await self._call_researcher(key, spec, block, locale)
+                except Exception as e:
+                    _safe_log(f"[trader_agent] {key} pipeline error: {type(e).__name__}: {e}")
+                    fallback_msg = (
+                        f"Pipeline error: {type(e).__name__}"
+                        if locale != "zh"
+                        else f"流程错误：{type(e).__name__}"
+                    )
+                    name = spec["name_zh"] if locale == "zh" else spec["name_en"]
+                    return {
+                        "id": key,
+                        "name_en": spec["name_en"],
+                        "name_zh": spec["name_zh"],
+                        "icon": spec["icon"],
+                        "color": spec["color"],
+                        "stance": "neutral",
+                        "confidence": 5,
+                        "headline": (
+                            f"[{name}] {'analysis unavailable' if locale != 'zh' else '本轮未生成有效分析'}"
+                        ),
+                        "key_points": [fallback_msg],
+                        "evidence": "",
+                        "risks": "",
+                    }
+
+            tasks = [safe_call(key) for key in active_ids]
             researcher_results: list[dict] = []
             for coro in asyncio.as_completed(tasks):
-                result = await coro
+                try:
+                    result = await coro
+                except Exception as e:
+                    # safe_call should never raise, but defend in depth.
+                    _safe_log(f"[trader_agent] safe_call escaped exception: {e}")
+                    continue
                 researcher_results.append(result)
                 yield self._sse({"type": "researcher", "result": result})
 
