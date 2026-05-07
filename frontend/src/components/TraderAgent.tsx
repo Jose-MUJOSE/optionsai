@@ -31,19 +31,22 @@ import {
   type ManagerOptionsDecision,
   type ManagerSynthesis,
 } from "@/lib/api";
+import TraderPayoffChart from "./TraderPayoffChart";
 
-// Canonical researcher order — mirrors backend RESEARCHER_SPECS so the grid
-// is stable regardless of completion order. Includes the new "options" researcher.
+// Canonical analyst order — mirrors backend RESEARCHER_SPECS (v3 lineup).
+// Each analyst is a distinct domain expert; Bull/Bear were removed because
+// they were argumentative roles, not real research roles.
 const RESEARCHER_ORDER = [
-  "bull",
-  "bear",
+  "quant",
   "technical",
   "fundamental",
-  "market",
+  "credit",
+  "macro",
   "industry",
-  "financial",
-  "news",
-  "options",
+  "volatility",
+  "event",
+  "flow",
+  "risk",
 ] as const;
 
 const STANCE_STYLES: Record<string, { bg: string; text: string; ring: string; icon: typeof TrendingUp }> = {
@@ -54,18 +57,19 @@ const STANCE_STYLES: Record<string, { bg: string; text: string; ring: string; ic
 
 // Institutional-grade titles. We expose seniority and discipline in the
 // label so users understand each agent occupies a real sell-side role,
-// not a generic "AI persona". The shorter "name_en"/"name_zh" stays as the
-// main heading; the new desk_en/desk_zh shows in the credential strip.
+// not a generic "AI persona". The shorter name stays as the main heading;
+// the desk label shows in the credential strip.
 const RESEARCHER_META: Record<string, { name_en: string; name_zh: string; desk_en: string; desk_zh: string; icon: string }> = {
-  bull:        { name_en: "Bull-Side Strategist",       name_zh: "多头策略师",     desk_en: "Long-Bias Desk",            desk_zh: "多头研究台",     icon: "📈" },
-  bear:        { name_en: "Short-Side Strategist",      name_zh: "空头策略师",     desk_en: "Short-Bias Desk",           desk_zh: "空头研究台",     icon: "📉" },
-  technical:   { name_en: "Chief Technical Analyst",    name_zh: "首席技术分析师", desk_en: "Quantitative Strategy",     desk_zh: "量化策略",       icon: "📊" },
-  fundamental: { name_en: "Senior Equity Analyst",      name_zh: "高级股票分析师", desk_en: "Fundamental Coverage",      desk_zh: "基本面覆盖",     icon: "💼" },
-  market:      { name_en: "Macro Strategist",           name_zh: "宏观策略师",     desk_en: "Cross-Asset Macro",         desk_zh: "跨资产宏观",     icon: "🌐" },
-  industry:    { name_en: "Sector Specialist",          name_zh: "行业研究主管",   desk_en: "Sector Coverage",           desk_zh: "行业覆盖",       icon: "🏭" },
-  financial:   { name_en: "Quality-of-Earnings Analyst", name_zh: "盈利质量分析师", desk_en: "Forensic Accounting",       desk_zh: "财报取证",       icon: "🧮" },
-  news:        { name_en: "Catalyst & Events Analyst",  name_zh: "事件催化师",     desk_en: "Event-Driven Desk",         desk_zh: "事件驱动",       icon: "📰" },
-  options:     { name_en: "Volatility Strategist",      name_zh: "波动率策略师",   desk_en: "Options & Vol Desk",        desk_zh: "期权与波动率",   icon: "🎯" },
+  quant:       { name_en: "Quantitative Analyst",       name_zh: "量化分析师",       desk_en: "Factor & Statistics",       desk_zh: "因子与统计",     icon: "🧪" },
+  technical:   { name_en: "Technical Trader",            name_zh: "技术派交易员",     desk_en: "Tape Reading",              desk_zh: "盘面解读",       icon: "📊" },
+  fundamental: { name_en: "Fundamental Analyst",         name_zh: "基本面分析师",     desk_en: "Equity Coverage",           desk_zh: "权益覆盖",       icon: "💼" },
+  credit:      { name_en: "Credit & Balance-Sheet",      name_zh: "信用与资产负债",   desk_en: "Credit / IG Desk",          desk_zh: "信用席位",       icon: "🏦" },
+  macro:       { name_en: "Macro Strategist",            name_zh: "宏观策略师",       desk_en: "Cross-Asset Macro",         desk_zh: "跨资产宏观",     icon: "🌐" },
+  industry:    { name_en: "Sector Coverage Lead",        name_zh: "行业首席",         desk_en: "Sector Coverage",           desk_zh: "行业覆盖",       icon: "🏭" },
+  volatility:  { name_en: "Volatility Strategist",       name_zh: "波动率策略师",     desk_en: "Options & Vol Desk",        desk_zh: "期权波动率台",   icon: "🎯" },
+  event:       { name_en: "Event-Driven Analyst",        name_zh: "事件驱动分析师",   desk_en: "Catalyst Desk",             desk_zh: "催化剂席位",     icon: "📰" },
+  flow:        { name_en: "Flow & Positioning",          name_zh: "资金流与持仓",     desk_en: "Prime Flow Desk",           desk_zh: "资金流席位",     icon: "💸" },
+  risk:        { name_en: "Risk Manager",                name_zh: "风险管理师",       desk_en: "Risk Parity Desk",          desk_zh: "风险管理台",     icon: "🛡️" },
 };
 
 export default function TraderAgent() {
@@ -460,26 +464,26 @@ function ResearcherSelector(props: {
 
   const isSelected = (id: string) => isAll || props.selected.includes(id);
 
-  // Researcher metadata — short, institutional-style labels.
-  // Names are kept compact here because each pill must fit in a 3-col grid;
-  // the long titles live in the Researcher cards (RESEARCHER_META above).
+  // Compact analyst metadata for the selector grid — short labels because
+  // each pill must fit in a 3-col layout. Long titles live in RESEARCHER_META.
   const META: Record<string, { name_en: string; name_zh: string; icon: string; color: string }> = {
-    bull:        { name_en: "Long Bias",      name_zh: "多头策略",   icon: "📈", color: "emerald" },
-    bear:        { name_en: "Short Bias",     name_zh: "空头策略",   icon: "📉", color: "red" },
+    quant:       { name_en: "Quant",          name_zh: "量化因子",   icon: "🧪", color: "violet" },
     technical:   { name_en: "Technicals",     name_zh: "技术分析",   icon: "📊", color: "blue" },
-    fundamental: { name_en: "Equity Coverage",name_zh: "股票覆盖",   icon: "💼", color: "purple" },
-    market:      { name_en: "Macro",          name_zh: "宏观策略",   icon: "🌐", color: "cyan" },
-    industry:    { name_en: "Sector",         name_zh: "行业覆盖",   icon: "🏭", color: "amber" },
-    financial:   { name_en: "Earnings Q.",    name_zh: "盈利质量",   icon: "🧮", color: "indigo" },
-    news:        { name_en: "Catalysts",      name_zh: "事件驱动",   icon: "📰", color: "rose" },
-    options:     { name_en: "Volatility",     name_zh: "波动率台",   icon: "🎯", color: "teal" },
+    fundamental: { name_en: "Fundamentals",   name_zh: "基本面",     icon: "💼", color: "purple" },
+    credit:      { name_en: "Credit",         name_zh: "信用",       icon: "🏦", color: "indigo" },
+    macro:       { name_en: "Macro",          name_zh: "宏观",       icon: "🌐", color: "cyan" },
+    industry:    { name_en: "Sector",         name_zh: "行业",       icon: "🏭", color: "amber" },
+    volatility:  { name_en: "Volatility",     name_zh: "波动率",     icon: "🎯", color: "teal" },
+    event:       { name_en: "Event-Driven",   name_zh: "事件驱动",   icon: "📰", color: "rose" },
+    flow:        { name_en: "Flow",           name_zh: "资金流",     icon: "💸", color: "emerald" },
+    risk:        { name_en: "Risk",           name_zh: "风险管理",   icon: "🛡️", color: "slate" },
   };
 
   const presets: { label_en: string; label_zh: string; ids: string[] }[] = [
-    { label_en: "All 9 (full team)",     label_zh: "全部 9 位",         ids: [] },
-    { label_en: "Bull + Bear only",      label_zh: "仅多空辩论",         ids: ["bull", "bear"] },
-    { label_en: "Stock-focused (5)",     label_zh: "股票专项 (5)",      ids: ["bull", "bear", "technical", "fundamental", "news"] },
-    { label_en: "Options-focused (4)",   label_zh: "期权专项 (4)",      ids: ["bull", "bear", "options", "news"] },
+    { label_en: "All 10 (full team)",     label_zh: "全部 10 位",            ids: [] },
+    { label_en: "Stock-focused (6)",      label_zh: "股票专项 (6)",          ids: ["quant", "technical", "fundamental", "credit", "macro", "event"] },
+    { label_en: "Options-focused (5)",    label_zh: "期权专项 (5)",          ids: ["technical", "volatility", "event", "flow", "risk"] },
+    { label_en: "Quick read (3)",         label_zh: "快速判断 (3)",          ids: ["technical", "fundamental", "macro"] },
   ];
 
   return (
@@ -560,9 +564,9 @@ function ResearcherSelector(props: {
             })}
           </div>
 
-          {!isAll && props.selected.length > 0 && !props.selected.includes("bull") && !props.selected.includes("bear") && (
+          {!isAll && props.selected.length === 1 && (
             <div className="text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-              {isZh ? "提示：未选 Bull/Bear，将跳过辩论环节" : "Note: Bull/Bear not selected — debate phase will be skipped"}
+              {isZh ? "提示：仅选 1 位分析师将跳过辩论环节" : "Note: only 1 analyst — debate phase will be skipped"}
             </div>
           )}
         </div>
@@ -923,6 +927,15 @@ function ManagerCard({
           </div>
         )}
 
+        {/* Live payoff chart with What-If — only when PM provided structured legs */}
+        {!isStock && optMgr.option_legs && optMgr.option_legs.length > 0 && optMgr.underlying_price && (
+          <TraderPayoffChart
+            legs={optMgr.option_legs}
+            spotPrice={optMgr.underlying_price}
+            locale={locale}
+          />
+        )}
+
         {/* Catalysts + Risks */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {manager.key_catalysts && manager.key_catalysts.length > 0 && (
@@ -959,7 +972,7 @@ function ManagerCard({
             <div className="flex items-center gap-2 mb-3">
               <TargetIcon className="w-4 h-4 text-[var(--accent-violet)]" />
               <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-1)]">
-                {locale === "zh" ? "如何综合 9 位研究员观点" : "How 9 Researchers Were Weighed"}
+                {locale === "zh" ? "如何综合 10 位分析师观点" : "How the 10 Analysts Were Weighed"}
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1050,16 +1063,16 @@ function TraderEmptyState({
   // by design — describes how the pipeline works, no LLM calls needed.
   const methodology: { title_en: string; title_zh: string; desc_en: string; desc_zh: string }[] = [
     {
-      title_en: "9 specialist desks",
-      title_zh: "9 个专项研究台",
-      desc_en: "Long-bias, short-bias, technicals, equity coverage, macro, sector, earnings quality, catalysts, volatility — each runs independently with role-locked prompts.",
-      desc_zh: "多头/空头策略、技术分析、股票覆盖、宏观、行业、盈利质量、事件催化、波动率 — 9 个专项研究台并行独立运行。",
+      title_en: "10 domain-locked desks",
+      title_zh: "10 个领域独占研究台",
+      desc_en: "Quant, technicals, fundamentals, credit, macro, sector, volatility, event-driven, flow, risk — each desk sees ONLY its own data block, eliminating shared evidence and forcing genuinely independent reasoning.",
+      desc_zh: "量化、技术、基本面、信用、宏观、行业、波动率、事件、资金流、风险——每个席位只能看到本席位的数据，杜绝共用证据，确保独立思考。",
     },
     {
-      title_en: "Full-team cross-examination",
-      title_zh: "全员交叉辩论",
-      desc_en: "Every desk is paired with a peer holding a differing view and files a written rebuttal — concession, counter-argument, and reinforced evidence — before the Portfolio Manager weighs in.",
-      desc_zh: "每个研究台都会与一位观点不同的同行配对，互相书面反驳——必须包含让步、反驳和强化证据——再由投资经理进行综合裁决。",
+      title_en: "Strict 1v1 stance debate",
+      title_zh: "严格 1v1 立场辩论",
+      desc_en: "Every analyst is paired with the highest-conviction peer of OPPOSING stance for a written cross-examination — concession, rebuttal, reinforced evidence. No genuine disagreement = no fabricated debate.",
+      desc_zh: "每位分析师与立场相反、信念度最高的同行 1v1 配对，进行书面交叉质询——让步、反驳、强化证据。没有真分歧则跳过辩论。",
     },
     {
       title_en: "Portfolio Manager call",

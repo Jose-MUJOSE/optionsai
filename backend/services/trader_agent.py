@@ -1,17 +1,23 @@
 """
-Professional Trader Agent — multi-perspective debate pipeline.
+Professional Trader Agent — multi-perspective debate pipeline (v3).
 
-Nine specialist researchers each produce an independent perspective on the
-target ticker, then a portfolio manager synthesises a final recommendation.
+Ten specialist analysts each produce an independent perspective on the
+target ticker from STRICTLY their own data domain, then a portfolio
+manager synthesises a final recommendation.
 
-The pipeline is structured rather than waterfall:
-  1. Research Phase (parallel): Bull, Bear, Technical, Fundamental,
-     Market, Industry, Financial, News, Options researchers
-  2. Decision Phase: Portfolio Manager produces final call with
-     per-researcher synthesis showing exactly how each voice was weighted
+Key design changes from v2:
+  - Removed "Bull" and "Bear" as standalone researcher roles. Each
+    domain analyst now self-determines stance from their own data,
+    eliminating the duplicated bull/bear narratives.
+  - Added Quant, Credit, Flow/Positioning, and Risk Manager roles.
+  - Each analyst is hard-locked to their own data block — no shared
+    base context — to force genuinely independent reasoning.
+  - Debate is strict 1v1 by opposing stance (highest-confidence opponent).
 
-Output is a strict JSON object so the frontend can render each section
-independently in a grid layout (not a single waterfall).
+Pipeline phases:
+  1. Research Phase (parallel): 10 analysts on locked domain data
+  2. Debate Phase: 1v1 cross-examination by stance opposition
+  3. Decision Phase: PM synthesises with per-researcher attribution
 """
 from __future__ import annotations
 
@@ -25,11 +31,18 @@ from backend.services.researcher_context import (
     fetch_fundamental_metrics,
     fetch_market_context,
     fetch_sector_etf_context,
+    fetch_flow_context,
     format_technical_block,
     format_fundamental_block,
-    format_financial_block,
+    format_credit_block,
     format_market_block,
     format_industry_block,
+    format_quant_block,
+    format_flow_block,
+    format_risk_block,
+    format_volatility_block,
+    format_event_block,
+    format_minimal_header,
 )
 
 
@@ -41,112 +54,164 @@ AnalysisMode = Literal["stock", "options"]
 # ============================================================
 
 RESEARCHER_SPECS = {
-    "bull": {
-        "name_en": "Bull Researcher",
-        "name_zh": "看多研究员",
-        "icon": "📈",
-        "color": "green",
+    "quant": {
+        "name_en": "Quantitative Analyst",
+        "name_zh": "量化分析师",
+        "icon": "🧪",
+        "color": "violet",
         "role_en": (
-            "You are a bull-case research analyst. Your job is to argue the strongest "
-            "possible case for buying this stock. Find every reason the price could go "
-            "higher: catalysts, margin expansion, market share gains, valuation re-rating, "
-            "macro tailwinds. Be specific and cite the data given. Do NOT hedge — your job "
-            "is to be the loudest bull voice in the room."
+            "You are a quantitative / factor analyst — think Cliff Asness or D.E. Shaw quant desk. "
+            "Your ONLY data is the composite factor scoreboard given to you (momentum, value, "
+            "quality, low-volatility, growth). Convert these into a factor verdict:\n"
+            " 1. WHICH FACTORS this stock is currently strong / weak on (cite the actual scores).\n"
+            " 2. The factor TILT — is the name a momentum buy, a value trap, a quality compounder, "
+            "    or a low-conviction blend?\n"
+            " 3. Statistical setup — is the 30D return at a multi-sigma extreme vs the trailing "
+            "    realized volatility? RSI extreme? Mean-reversion or trend-continuation regime?\n"
+            "Final stance derives ONLY from the factor profile. Do NOT cite news, options, "
+            "macro, or balance-sheet data — those are other analysts' jobs. Refuse to invent "
+            "thematic narratives — be empirical."
         ),
         "role_zh": (
-            "你是看多研究员。你的工作是为该股票构建最强的看多论据。"
-            "找出每一个股价可能上涨的理由：催化剂、利润率扩张、市占率增长、估值重估、宏观顺风。"
-            "请具体并引用提供的数据。不要含糊——你的角色就是房间里最响亮的多头声音。"
-        ),
-    },
-    "bear": {
-        "name_en": "Bear Researcher",
-        "name_zh": "看空研究员",
-        "icon": "📉",
-        "color": "red",
-        "role_en": (
-            "You are a bear-case research analyst. Your job is to argue the strongest "
-            "possible case against this stock. Find every reason the price could fall: "
-            "competitive pressure, margin compression, valuation overshoot, regulatory risk, "
-            "deteriorating fundamentals. Be specific. Do NOT hedge — your job is to be the "
-            "loudest bear voice in the room."
-        ),
-        "role_zh": (
-            "你是看空研究员。你的工作是为该股票构建最强的看空论据。"
-            "找出每一个股价可能下跌的理由：竞争压力、利润率压缩、估值过高、监管风险、基本面恶化。"
-            "请具体。不要含糊——你的角色就是房间里最响亮的空头声音。"
+            "你是量化 / 因子分析师——对标 Cliff Asness、D.E. Shaw 量化席位。"
+            "你**唯一**的数据是给你的综合因子评分卡（动量、价值、质量、低波动、成长）。"
+            "请将其转化为一份因子判断：\n"
+            " 1. 当前该股**强 / 弱于哪些因子**（必须引用实际分数）；\n"
+            " 2. **因子倾向**——属于动量买入、价值陷阱、质量复利者，还是低信心混合？\n"
+            " 3. **统计形态**——近 30 天回报相对实现波动率是否处于多 sigma 极值？RSI 极值？"
+            "    是均值回归还是趋势延续 regime？\n"
+            "立场必须**仅来自因子画像**。**不要**引用新闻、期权、宏观或资产负债表——"
+            "那些是其他分析师的工作。拒绝臆造主题叙事，必须保持经验主义。"
         ),
     },
     "technical": {
-        "name_en": "Technical Researcher",
-        "name_zh": "技术面研究员",
+        "name_en": "Technical Trader",
+        "name_zh": "技术派交易员",
         "icon": "📊",
         "color": "blue",
         "role_en": (
-            "You are a technical analyst. Analyse the price action: trend direction, "
-            "moving averages, support and resistance levels, volume confirmation, momentum. "
-            "Identify the key levels to watch and any chart patterns visible in the data. "
-            "Conclude with a directional bias from a pure technical standpoint."
+            "You are a technical trader — think Jim Cramer's chart desk or a Market Wizards "
+            "tape reader. Your ONLY data is the price/indicator block (MA stack, RSI, MACD, "
+            "Bollinger, ATR, volume ratio, returns). Read the tape:\n"
+            " 1. TREND VERDICT — strong uptrend / uptrend / sideways / downtrend / strong "
+            "    downtrend (cite the MA stack explicitly).\n"
+            " 2. MOMENTUM — is RSI in overbought / oversold / mid-range? Is MACD bullish-cross, "
+            "    bearish-cross, or rolling? Cite both numbers.\n"
+            " 3. KEY LEVELS — quote the MA20 / MA50 / Bollinger upper / Bollinger lower as "
+            "    explicit support and resistance. Where is price relative to these?\n"
+            " 4. VOLUME CONFIRMATION — is the move backed by above-average volume?\n"
+            "Stance derives ONLY from price action. Do NOT cite earnings, fundamentals, news, "
+            "or macro — that is not your desk. Forecast the next 1-4 weeks, not 6 months."
         ),
         "role_zh": (
-            "你是技术面分析师。请分析价格走势：趋势方向、均线、支撑与阻力位、量价配合、动量。"
-            "识别需要关注的关键价位和数据中可见的图表形态。最后给出纯技术面的方向性判断。"
+            "你是技术派交易员——对标 Market Wizards 中的盘面交易员。"
+            "你**唯一**的数据是价格/指标块（MA 排列、RSI、MACD、布林带、ATR、量能比、收益率）。"
+            "请解读盘面：\n"
+            " 1. 趋势判断——强势上行 / 上行 / 横盘 / 下行 / 强势下行（必须明确引用 MA 排列）；\n"
+            " 2. 动量——RSI 处于超买 / 超卖 / 中性？MACD 是多头交叉、空头交叉，还是拐头？"
+            "    必须引用具体数值；\n"
+            " 3. 关键价位——把 MA20 / MA50 / 布林带上下轨作为明确支撑阻力，"
+            "    指出当前价格相对这些位置在哪里；\n"
+            " 4. 量价配合——当前波动是否伴随放量确认？\n"
+            "立场必须**仅来自价格行为**。**不要**引用业绩、基本面、新闻或宏观——那不是你的席位。"
+            "预测时间窗口为 1-4 周，不要做半年级别预测。"
         ),
     },
     "fundamental": {
-        "name_en": "Fundamental Researcher",
-        "name_zh": "基本面研究员",
+        "name_en": "Fundamental Analyst",
+        "name_zh": "基本面分析师",
         "icon": "💼",
         "color": "purple",
         "role_en": (
-            "You are a fundamental analyst. Examine the underlying business: revenue growth "
-            "trajectory, profitability, valuation multiples vs peers, balance-sheet strength, "
-            "free cash flow generation. Assess whether the current price reflects fair intrinsic "
-            "value. Conclude with a fundamental rating: undervalued, fairly valued, or overvalued."
+            "You are a fundamental equity analyst — think a Capital Group sector analyst. "
+            "Your ONLY data is the fundamental block (P/E, P/B, P/S, PEG, margins, growth, "
+            "ROE, FCF, market cap, beta). Build the case:\n"
+            " 1. VALUATION VERDICT — cheap / fair / expensive on each multiple, AND vs the "
+            "    company's growth rate (PEG-driven). Cite at least three multiples.\n"
+            " 2. PROFITABILITY TREND — gross / operating / net margin levels and whether the "
+            "    revenue growth justifies the multiple paid.\n"
+            " 3. CAPITAL EFFICIENCY — ROE / ROA — is this a quality compounder or a "
+            "    capital-destroyer? Compare to a 15% ROE / 8% ROA bar.\n"
+            " 4. CASH GENERATION — FCF positive? FCF yield computable from market cap?\n"
+            "Stance derives ONLY from the fundamental data. Do NOT cite chart patterns, "
+            "options flow, macro, or news flow. End with: undervalued / fairly valued / overvalued."
         ),
         "role_zh": (
-            "你是基本面分析师。请审视底层业务：收入增长轨迹、盈利能力、相对同行的估值倍数、"
-            "资产负债表强度、自由现金流生成能力。评估当前股价是否反映合理内在价值。"
-            "最后给出基本面评级：低估、合理估值、高估。"
+            "你是基本面权益分析师——对标 Capital Group 行业分析师。"
+            "你**唯一**的数据是基本面块（P/E、P/B、P/S、PEG、利润率、增长、ROE、FCF、市值、Beta）。"
+            "请构建论据：\n"
+            " 1. 估值判断——在每个倍数维度上是便宜 / 合理 / 偏贵，且**结合增长率**（PEG 驱动）。"
+            "    至少引用三个倍数指标；\n"
+            " 2. 盈利能力趋势——毛利率 / 经营利润率 / 净利率水平，且营收增长是否支撑当前估值；\n"
+            " 3. 资本效率——ROE / ROA——这是质量复利者还是资本毁灭者？以 15% ROE / 8% ROA 为基准对比；\n"
+            " 4. 现金生成——FCF 是否为正？由市值可计算 FCF Yield 吗？\n"
+            "立场必须**仅来自基本面数据**。**不要**引用图表形态、期权资金流、宏观或新闻。"
+            "最终结论：低估 / 合理 / 高估。"
         ),
     },
-    "market": {
-        "name_en": "Chief Macro Strategist",
-        "name_zh": "首席宏观策略师",
+    "credit": {
+        "name_en": "Credit & Balance-Sheet Analyst",
+        "name_zh": "信用与资产负债分析师",
+        "icon": "🏦",
+        "color": "indigo",
+        "role_en": (
+            "You are a credit / balance-sheet analyst — think a Moody's or Pimco corporate "
+            "credit desk applied to the equity. Your ONLY data is the balance-sheet block "
+            "(D/E, current ratio, quick ratio, total cash, total debt, FCF yield, short-%-float). "
+            "Assess SOLVENCY and FINANCIAL DURABILITY:\n"
+            " 1. LEVERAGE — D/E level. Is this an investment-grade-equivalent balance sheet "
+            "    or a stretched one? Cite the actual ratio.\n"
+            " 2. LIQUIDITY — current ratio / quick ratio. Can the firm survive a 1-year "
+            "    revenue shock? Cite the cash-vs-debt absolute amounts.\n"
+            " 3. CASH-FLOW COVERAGE — FCF yield — does cash generation cover debt service "
+            "    and shareholder returns?\n"
+            " 4. CROWDED-SHORT FLAG — is short interest as % of float a stress signal "
+            "    (>10%) or benign?\n"
+            "Issue an internal credit grade A through F. Stance derives ONLY from balance-sheet "
+            "durability — bullish if the firm can weather any cycle, bearish if leverage looks "
+            "fragile. Do NOT cite news, momentum, or macro."
+        ),
+        "role_zh": (
+            "你是信用 / 资产负债表分析师——对标 Moody's 或 Pimco 公司信用席位（应用到股权侧）。"
+            "你**唯一**的数据是资产负债表块（D/E、流动比率、速动比率、总现金、总债务、FCF Yield、空头占流通股%）。"
+            "评估**偿债能力**与**财务持久性**：\n"
+            " 1. 杠杆——D/E 水平。是接近投资级的资产负债表，还是过度拉伸？必须引用实际比率；\n"
+            " 2. 流动性——流动比率 / 速动比率。能否扛住 1 年营收冲击？必须引用现金与债务的绝对金额；\n"
+            " 3. 现金流覆盖——FCF Yield——经营现金能否覆盖债务付息与股东回报？\n"
+            " 4. 拥挤空头警讯——空头占流通股 % 是否构成压力信号（>10%）？\n"
+            "给出内部信用评级（A 到 F）。立场必须**仅来自资产负债表持久性**——能扛过周期则看多，"
+            "杠杆脆弱则看空。**不要**引用新闻、动量或宏观。"
+        ),
+    },
+    "macro": {
+        "name_en": "Macro Strategist",
+        "name_zh": "宏观策略师",
         "icon": "🌐",
         "color": "cyan",
         "role_en": (
-            "You are the Chief Macro Strategist — think Stanley Druckenmiller / Mike Wilson. "
-            "Your job is NOT to repeat company-specific bull/bear points. You MUST analyse the "
-            "broader regime through FOUR distinct lenses, and connect each one back to this "
-            "ticker:\n"
-            " 1. INDEX BREADTH & RISK APPETITE — SPY/QQQ trajectory today and over the last "
-            "    30/90 days, leadership concentration, advance/decline tone. Is the tape "
+            "You are the Macro Strategist — think Stanley Druckenmiller / Mike Wilson. "
+            "Your ONLY data is the macro context block (SPY, QQQ, VIX, US 10Y yield, TLT, DXY). "
+            "Analyse the regime through FOUR lenses:\n"
+            " 1. INDEX BREADTH & RISK APPETITE — SPY/QQQ daily move and direction. Tape "
             "    risk-on, risk-off, or rotating?\n"
-            " 2. RATES & LIQUIDITY — US 10Y yield level and direction, real yields, TLT tape, "
-            "    yield-curve shape, Fed policy stance. Do rates support or punish this name's "
-            "    duration / multiple?\n"
-            " 3. CURRENCY & GLOBAL FLOWS — DXY direction, EM/DM flows, FX impact on this "
-            "    company's revenue mix. Strong USD = headwind for which lines?\n"
-            " 4. VOLATILITY & POSITIONING — VIX level vs realized, term structure, retail "
-            "    vs institutional positioning if visible.\n"
-            "Conclude with: macro is a TAILWIND / NEUTRAL / HEADWIND for this name, AND why "
-            "this regime favours (or punishes) the company's specific sensitivities. Cite "
-            "actual numbers from the data block — no boilerplate."
+            " 2. RATES & LIQUIDITY — US 10Y level. TLT direction. Do rates support or "
+            "    punish this name's duration?\n"
+            " 3. CURRENCY — DXY direction. FX headwind for revenue mix?\n"
+            " 4. VOLATILITY REGIME — VIX level. Calm < 18, elevated 18-25, fearful > 25.\n"
+            "Conclude: macro is a TAILWIND / NEUTRAL / HEADWIND for this name. Stance "
+            "derives ONLY from macro data. Do NOT cite company specifics, fundamentals, "
+            "or technical levels — those are other desks."
         ),
         "role_zh": (
-            "你是首席宏观策略师——对标 Druckenmiller / Mike Wilson 这一档。"
-            "你的任务**不是**重复公司层面的多空观点。你必须从下列**四个独立维度**"
-            "分析宏观环境，并把每一条都对应到当前这只股票：\n"
-            " 1. 大盘广度与风险偏好——SPY/QQQ 当日及近 30/90 天走势、领涨股集中度、"
-            "    涨跌家数对比。当前是 risk-on、risk-off，还是行业轮动？\n"
-            " 2. 利率与流动性——美 10 年期名义/实际收益率水平与方向、TLT 走势、收益率曲线形态、"
-            "    联储政策立场。利率环境对该股久期/估值倍数是支撑还是压制？\n"
-            " 3. 汇率与全球资金——DXY 走向、新兴/发达市场资金流向、外汇敞口对公司收入结构的影响。"
-            "    强美元会对哪条业务线形成逆风？\n"
-            " 4. 波动率与持仓——VIX 相对已实现波动率、期限结构、散户与机构持仓信号。\n"
-            "最后给出：宏观环境对该股是**顺风 / 中性 / 逆风**，并解释当前 regime 为何"
-            "**有利或不利于**这家公司的特定敏感度。**必须引用数据块里的具体数字**——禁止套话。"
+            "你是宏观策略师——对标 Druckenmiller / Mike Wilson。"
+            "你**唯一**的数据是宏观环境块（SPY、QQQ、VIX、美 10 年期收益率、TLT、DXY）。"
+            "从四个维度分析 regime：\n"
+            " 1. 大盘广度与风险偏好——SPY/QQQ 当日走势与方向。当前是 risk-on、risk-off，还是行业轮动？\n"
+            " 2. 利率与流动性——美 10 年期水平。TLT 走势。利率环境对该股久期是支撑还是压制？\n"
+            " 3. 汇率——DXY 走向。是否对收入结构形成外汇逆风？\n"
+            " 4. 波动率体制——VIX 水平。<18 平静，18-25 担忧，>25 恐慌。\n"
+            "最终结论：宏观是**顺风 / 中性 / 逆风**。立场必须**仅来自宏观数据**。"
+            "**不要**引用公司层面信息、基本面或技术位——那是其他席位的工作。"
         ),
     },
     "industry": {
@@ -156,96 +221,165 @@ RESEARCHER_SPECS = {
         "color": "amber",
         "role_en": (
             "You are the Sector Coverage Lead — think Dan Ives on tech, Adam Jonas on autos. "
-            "Stop describing competitors generically. You MUST work through FIVE concrete "
-            "industry lenses:\n"
-            " 1. INDUSTRY LIFE-CYCLE — is this sector in secular growth, late-cycle expansion, "
-            "    consolidation, or structural decline? Cite the multi-year demand trend driving "
-            "    your call (e.g. AI capex super-cycle, EV penetration curve, GLP-1 TAM).\n"
-            " 2. COMPETITIVE STRUCTURE — Porter-style: is supplier power, buyer power, or new "
-            "    entrants the dominant pressure? Identify the 2-3 closest comparables and how "
-            "    this name stacks on share, pricing power, and gross margin.\n"
-            " 3. RELATIVE STRENGTH vs SECTOR ETF — quote today's move and the multi-week trend "
-            "    vs the sector ETF in the data block. Outperforming or breaking down?\n"
-            " 4. INNOVATION & DISRUPTION — what technology / business-model shift is "
-            "    re-pricing the sector right now (AI, automation, regulation, geopolitics)?\n"
+            "Your ONLY data is the sector ETF block (sector ETF symbol, ETF price/change, "
+            "this ticker's relative strength vs the ETF). Five lenses:\n"
+            " 1. INDUSTRY LIFE-CYCLE — secular growth, late-cycle expansion, consolidation, "
+            "    or structural decline? Cite the multi-year demand trend.\n"
+            " 2. COMPETITIVE STRUCTURE — Porter five forces dominant pressure (supplier, "
+            "    buyer, new entrant)? Identify 2-3 closest peers.\n"
+            " 3. RELATIVE STRENGTH — quote the ticker's daily move and relative-strength "
+            "    figure vs the sector ETF. Outperforming or breaking down?\n"
+            " 4. INNOVATION & DISRUPTION — what tech / business-model shift is repricing "
+            "    the sector right now?\n"
             " 5. REGULATORY BACKDROP — antitrust, tariffs, export controls, drug pricing, "
-            "    capital rules — whichever applies. Tailwind or headwind for THIS name?\n"
-            "Final verdict: this company is the LEADER / CHALLENGER / LAGGARD in a "
-            "FAVOURABLE / NEUTRAL / DETERIORATING industry phase. Be specific about why."
+            "    capital rules — pick the relevant one.\n"
+            "Verdict: LEADER / CHALLENGER / LAGGARD in a FAVOURABLE / NEUTRAL / DETERIORATING "
+            "industry phase. Stance derives ONLY from sector context. Do NOT cite firm-specific "
+            "valuation or chart patterns — that's not your desk."
         ),
         "role_zh": (
-            "你是行业首席分析师——对标 Dan Ives（科技）/ Adam Jonas（汽车）这一档。"
-            "不要泛泛描述竞争对手。你必须从下列**五个具体维度**分析所在行业：\n"
-            " 1. 行业生命周期——该行业目前处于**长期增长 / 成熟扩张 / 整合期 / 结构性衰退**"
-            "    的哪个阶段？引用驱动你判断的多年需求趋势（如 AI 资本开支超级周期、电车渗透曲线、"
-            "    GLP-1 市场空间等）。\n"
-            " 2. 竞争结构——按波特五力：供应商议价、客户议价、新进入者哪一项是主导压力？"
-            "    指出 2-3 家最直接的可比公司，比较其市占率、定价权与毛利率。\n"
-            " 3. 相对板块强弱——引用数据块中该股**相对所属板块 ETF**的当日走势及近期趋势。"
-            "    跑赢板块还是跌破板块？\n"
-            " 4. 创新与颠覆——当前是哪种**技术或商业模式变革**在重定价整个行业？"
-            "    （AI、自动化、监管、地缘政治）\n"
-            " 5. 监管背景——反垄断、关税、出口管制、药价、资本要求等——挑相关的讲。"
-            "    对该公司是顺风还是逆风？\n"
-            "最终结论：该公司在**有利 / 中性 / 恶化**的行业阶段中处于**领导者 / 挑战者 / 落后者**位置。"
-            "必须具体说明理由。"
+            "你是行业首席分析师——对标 Dan Ives（科技）/ Adam Jonas（汽车）。"
+            "你**唯一**的数据是板块 ETF 块（板块 ETF 代码、ETF 价格/涨跌、本股相对板块强度）。"
+            "五个维度：\n"
+            " 1. 行业生命周期——长期增长 / 成熟扩张 / 整合期 / 结构性衰退？必须引用多年需求趋势；\n"
+            " 2. 竞争结构——波特五力的主导压力（供应商、客户、新进入者）？指出 2-3 家最直接可比公司；\n"
+            " 3. 相对板块强弱——必须引用该股当日涨跌与相对板块 ETF 的差值。跑赢板块还是跌破？\n"
+            " 4. 创新与颠覆——当前是哪种技术或商业模式变革在重定价整个行业？\n"
+            " 5. 监管背景——反垄断、关税、出口管制、药价、资本要求——挑相关的讲。\n"
+            "结论：在**有利 / 中性 / 恶化**的行业阶段中处于**领导者 / 挑战者 / 落后者**位置。"
+            "立场必须**仅来自板块数据**。**不要**引用公司估值或图表形态——那不是你的席位。"
         ),
     },
-    "financial": {
-        "name_en": "Financial Researcher",
-        "name_zh": "财务研究员",
-        "icon": "🧮",
-        "color": "indigo",
-        "role_en": (
-            "You are a financial researcher. Focus on the quality and durability of earnings: "
-            "gross margin trend, operating leverage, capex intensity, ROIC, debt levels, share-count "
-            "trajectory, working-capital efficiency. Flag any accounting red flags or non-GAAP-vs-GAAP "
-            "divergences. Conclude with a financial-quality grade A through F."
-        ),
-        "role_zh": (
-            "你是财务研究员。请聚焦盈利质量与可持续性：毛利率趋势、经营杠杆、资本开支强度、"
-            "ROIC、债务水平、股本变化、营运资本效率。标记任何会计警讯或 GAAP 与 non-GAAP 的差异。"
-            "最后给出财务质量等级（A 到 F）。"
-        ),
-    },
-    "news": {
-        "name_en": "News & Events Researcher",
-        "name_zh": "新闻事件研究员",
-        "icon": "📰",
-        "color": "rose",
-        "role_en": (
-            "You are a news and corporate-events researcher. Review the recent news headlines and "
-            "upcoming events (earnings, product launches, regulatory deadlines, insider transactions). "
-            "Identify the single most important catalyst in the next 30 days and assess whether it "
-            "skews bullish, bearish, or neutral."
-        ),
-        "role_zh": (
-            "你是新闻与公司事件研究员。请审视近期新闻头条与即将发生的事件（财报、产品发布、监管节点、"
-            "内部人交易）。识别未来 30 天内最重要的单一催化剂，并评估其偏多、偏空还是中性。"
-        ),
-    },
-    "options": {
-        "name_en": "Options Researcher",
-        "name_zh": "期权研究员",
+    "volatility": {
+        "name_en": "Volatility & Options Strategist",
+        "name_zh": "波动率与期权策略师",
         "icon": "🎯",
         "color": "teal",
         "role_en": (
-            "You are an options-flow and volatility researcher. Use the Implied Volatility level, "
-            "IV Rank, IV Percentile, ATM Greeks (Delta/Gamma/Theta/Vega), and the Gamma Exposure (GEX) "
-            "regime if provided. Determine: (1) is IV rich or cheap relative to history; "
-            "(2) is the dealer-positioning regime amplifying or compressing moves; "
-            "(3) what does the ATM term structure imply about expected near-term move size; "
-            "(4) which side of the chain is showing flow conviction. "
-            "Conclude with a directional or volatility-regime read that informs strategy selection."
+            "You are a volatility / options strategist — think a Susquehanna or CitSec vol "
+            "desk. Your ONLY data is the options/IV block (current IV, IV Rank, IV Percentile, "
+            "30D HV, ATM Greeks, Net GEX, Gamma Flip Strike). Verdicts required:\n"
+            " 1. IV REGIME — IV cheap / fair / rich vs history. Cite IV Rank explicitly. "
+            "    Compare current IV to 30D HV — is the market overpaying or underpaying for risk?\n"
+            " 2. DEALER POSITIONING — Net GEX positive (vol-compressing) or negative "
+            "    (vol-amplifying)? Where is the gamma flip strike vs spot?\n"
+            " 3. SKEW & DIRECTIONAL READ — what do ATM call vs put Greeks suggest about "
+            "    near-term skew?\n"
+            " 4. STRATEGY-SELECTION HINT — does this regime favour buying options (low IV "
+            "    + dealer-amplified moves) or selling options (high IV + dealer-compressed)?\n"
+            "Stance translates to a directional read AND a vol-regime read. Do NOT cite "
+            "fundamentals, news, or chart MAs — that's not your desk."
         ),
         "role_zh": (
-            "你是期权资金流与波动率研究员。请利用隐含波动率（IV）、IV Rank、IV Percentile、"
-            "平值希腊字母（Delta/Gamma/Theta/Vega）以及 Gamma 敞口（GEX）机制（若提供）。判断："
-            "(1) IV 相对历史是偏贵还是偏便宜；"
-            "(2) 经销商持仓机制是放大还是压制波动；"
-            "(3) ATM 期限结构暗示的近期预期波动幅度；"
-            "(4) 期权链哪一侧显示了资金信念。"
-            "最后给出方向性或波动率机制判断，用于策略选择。"
+            "你是波动率 / 期权策略师——对标 Susquehanna 或 CitSec 波动率席位。"
+            "你**唯一**的数据是期权/IV 块（当前 IV、IV Rank、IV Percentile、30 日 HV、ATM 希腊字母、"
+            "净 GEX、Gamma Flip 行权价）。必须给出：\n"
+            " 1. IV 体制——相对历史是便宜 / 合理 / 偏贵。必须明确引用 IV Rank。"
+            "    把当前 IV 与 30D HV 对比——市场对风险定价过高还是过低？\n"
+            " 2. 经销商持仓——净 GEX 为正（压缩波动）还是为负（放大波动）？Gamma Flip 价相对现货在哪？\n"
+            " 3. 偏度与方向——ATM 看涨与看跌希腊字母如何提示近期偏度？\n"
+            " 4. 策略选择提示——当前 regime 偏好买方（低 IV + 经销商放大波动）还是卖方"
+            "    （高 IV + 经销商压缩波动）？\n"
+            "立场需同时给出**方向判断**和**波动率体制判断**。**不要**引用基本面、新闻或图表均线——那不是你的席位。"
+        ),
+    },
+    "event": {
+        "name_en": "Event-Driven Analyst",
+        "name_zh": "事件驱动分析师",
+        "icon": "📰",
+        "color": "rose",
+        "role_en": (
+            "You are an event-driven analyst — think a Paulson & Co or Elliott catalyst desk. "
+            "Your ONLY data is the event block (recent news headlines, next earnings date, "
+            "analyst-target consensus, recent rating changes). Catalyst-focused output:\n"
+            " 1. NEAREST CATALYST — the single most important event in the next 30 days "
+            "    (earnings, FDA, court date, contract). Cite the date if known.\n"
+            " 2. NEWS DRIFT — synthesize the recent headline tone in 1 sentence (not a "
+            "    bullet list of headlines). Net positive, negative, or noisy?\n"
+            " 3. ANALYST CONSENSUS — mean target vs spot, and the implied % move. Recent "
+            "    upgrade / downgrade pattern.\n"
+            " 4. CATALYST RISK/REWARD — does the market positioning into the catalyst look "
+            "    crowded long, crowded short, or uncrowded?\n"
+            "Stance derives ONLY from catalysts and consensus. Do NOT cite chart MAs, "
+            "fundamentals, or macro — those are other analysts."
+        ),
+        "role_zh": (
+            "你是事件驱动分析师——对标 Paulson & Co 或 Elliott 催化剂席位。"
+            "你**唯一**的数据是事件块（近期新闻、下次财报日期、分析师共识目标价、近期评级变动）。"
+            "聚焦催化剂：\n"
+            " 1. 最近催化剂——未来 30 天内最重要的单一事件（财报、FDA、法庭、合同）。如有日期必须引用；\n"
+            " 2. 新闻倾向——用一句话总结近期头条基调（**不要**罗列标题列表）。净偏多、偏空，还是嘈杂？\n"
+            " 3. 分析师共识——平均目标价相对现价的隐含 % 涨跌。近期上调 / 下调评级的模式；\n"
+            " 4. 催化剂风险回报——市场在事件前的定位是**多头拥挤、空头拥挤、还是不拥挤**？\n"
+            "立场**仅来自催化剂与共识**。**不要**引用图表均线、基本面或宏观——那是其他分析师。"
+        ),
+    },
+    "flow": {
+        "name_en": "Flow & Positioning Analyst",
+        "name_zh": "资金流与持仓分析师",
+        "icon": "💸",
+        "color": "emerald",
+        "role_en": (
+            "You are a flow & positioning analyst — think a Goldman Prime Brokerage flow "
+            "desk. Your ONLY data is the positioning block (short interest, short % float, "
+            "days-to-cover, institutional ownership, recent insider transactions, P/C ratio). "
+            "Read the smart-money tape:\n"
+            " 1. SHORT POSITIONING — short % float level. Crowded short (>10%) sets up a "
+            "    squeeze; sub-3% suggests no skeptic conviction. Days-to-cover sharpens this.\n"
+            " 2. INSTITUTIONAL FLOW — net institutional buyers vs sellers. Are 13F holders "
+            "    accumulating or distributing?\n"
+            " 3. INSIDER ACTIVITY — recent open-market insider buys (bullish signal) or "
+            "    sales (mixed signal). Quote the count if given.\n"
+            " 4. OPTIONS POSITIONING — Put/Call ratio direction. Skewed bullish or bearish?\n"
+            "Stance derives ONLY from positioning data. Smart money accumulating + insiders "
+            "buying + heavy short squeeze setup = bullish. Insiders selling + institutions "
+            "trimming + crowded long = bearish. Do NOT cite fundamentals or technicals."
+        ),
+        "role_zh": (
+            "你是资金流与持仓分析师——对标 Goldman 主经纪商资金流席位。"
+            "你**唯一**的数据是持仓块（空头持仓、空头占流通股 %、Days-to-Cover、机构持仓、近期内部人交易、P/C 比）。"
+            "解读 smart money 盘面：\n"
+            " 1. 空头持仓——空头占流通股 % 水平。>10% 拥挤空头（潜在轧空）；<3% 说明无空方信念。"
+            "    用 Days-to-Cover 锐化判断；\n"
+            " 2. 机构资金流——净机构买入还是卖出？13F 持有人在加仓还是减仓？\n"
+            " 3. 内部人活动——近期内部人公开市场买入（看多信号）或卖出（混合信号）。如有计数必须引用；\n"
+            " 4. 期权持仓——Put/Call 比方向。偏多还是偏空？\n"
+            "立场必须**仅来自持仓数据**。Smart money 加仓 + 内部人买入 + 重度空头轧空配置 = 看多；"
+            "内部人卖出 + 机构减持 + 多头拥挤 = 看空。**不要**引用基本面或技术面。"
+        ),
+    },
+    "risk": {
+        "name_en": "Risk Manager",
+        "name_zh": "风险管理师",
+        "icon": "🛡️",
+        "color": "slate",
+        "role_en": (
+            "You are the Risk Manager — think a Bridgewater risk parity desk. Your ONLY "
+            "data is the risk block (Beta, ATR, 30D realized vol, 1-year max drawdown, "
+            "1Y return, correlation with SPY proxied by Beta). Your job is to assess "
+            "POSITION-LEVEL RISK, not direction:\n"
+            " 1. VOLATILITY GRADE — daily ATR as % of price. >5% = high-vol; 2-5% = normal; "
+            "    <2% = low-vol. State the absolute ATR figure.\n"
+            " 2. DRAWDOWN PROFILE — 1Y max drawdown depth. Has the name historically "
+            "    delivered shareholder pain?\n"
+            " 3. CORRELATION RISK — Beta to market. >1.5 = leverage on systematic risk; "
+            "    <0.7 = defensive.\n"
+            " 4. STOP-LOSS LEVEL — quote a 1.5x-ATR or 2x-ATR stop in dollars from current "
+            "    spot. State an explicit stop price.\n"
+            "Stance: bullish only if asymmetric upside is preserved AFTER setting a "
+            "disciplined stop; otherwise neutral or bearish on a risk-adjusted basis. Do NOT "
+            "cite fundamentals, news, or technical patterns — your desk is risk-only."
+        ),
+        "role_zh": (
+            "你是风险管理师——对标 Bridgewater 风险平价席位。"
+            "你**唯一**的数据是风险块（Beta、ATR、30D 已实现波动率、1Y 最大回撤、1Y 收益率、对 SPY 的相关性以 Beta 代理）。"
+            "你的任务是评估**仓位级风险**，**不是方向判断**：\n"
+            " 1. 波动率评级——日均 ATR 占价格比。>5% 高波；2-5% 正常；<2% 低波。必须引用 ATR 绝对值；\n"
+            " 2. 回撤画像——1Y 最大回撤深度。历史上是否给股东带来过痛感？\n"
+            " 3. 相关性风险——对市场的 Beta。>1.5 系统性风险放大；<0.7 防御型；\n"
+            " 4. 止损位——基于 1.5x ATR 或 2x ATR 给出**明确的美元止损价**（从现货价向下计算）。\n"
+            "立场：仅当**设了纪律性止损后**仍有非对称上行空间时看多；否则按**风险调整后口径**给中性或看空。"
+            "**不要**引用基本面、新闻或技术形态——你的席位只关注风险。"
         ),
     },
 }
@@ -333,16 +467,20 @@ MANAGER_OUTPUT_INSTRUCTION_EN = """
 LANGUAGE: Write ALL string values in ENGLISH ONLY. No mixed-language output.
 Return ONLY a valid JSON object — no preamble, no markdown fences.
 
-You MUST include `synthesis` — a per-researcher reasoning chain showing how each
-voice influenced your final call. Include all 9 researcher IDs:
-bull, bear, technical, fundamental, market, industry, financial, news, options.
+You MUST include `synthesis` — a per-analyst reasoning chain showing how each
+desk's view influenced your final call. Include all 10 analyst IDs:
+quant, technical, fundamental, credit, macro, industry, volatility, event, flow, risk.
+
+For OPTIONS mode you MUST also fill `option_legs` so the frontend can render a
+live payoff diagram. Each leg is one option contract with explicit
+{type, side, strike, premium, quantity, expiration} fields.
 
 Schema for STOCK mode:
 {
   "decision": "buy" | "hold" | "sell",
   "conviction": <integer 1-10>,
   "time_horizon": "<e.g. '1-3 months', ENGLISH>",
-  "thesis": "<5-7 sentences. Open with the dominant signal, then explain how you weighted the bull vs bear case, what the technical/fundamental setup adds, and what the options market is pricing in. Final sentence: the trigger that confirms or invalidates the call.>",
+  "thesis": "<5-7 sentences. Open with the dominant signal, then explain how you weighted the analysts, and finish with the trigger that confirms or invalidates the call.>",
   "entry_zone": "<price range, e.g. '$175-180'>",
   "target_price": "<single price>",
   "stop_loss": "<single price>",
@@ -350,18 +488,19 @@ Schema for STOCK mode:
   "key_catalysts": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>"],
   "main_risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
   "synthesis": {
-    "bull":        "<1-2 sentences: how this researcher's view affected the decision>",
-    "bear":        "<1-2 sentences>",
-    "technical":   "<1-2 sentences>",
-    "fundamental": "<1-2 sentences>",
-    "market":      "<1-2 sentences>",
-    "industry":    "<1-2 sentences>",
-    "financial":   "<1-2 sentences>",
-    "news":        "<1-2 sentences>",
-    "options":     "<1-2 sentences>"
+    "quant":        "<1-2 sentences: how the quant factor read affected the call>",
+    "technical":    "<1-2 sentences>",
+    "fundamental":  "<1-2 sentences>",
+    "credit":       "<1-2 sentences>",
+    "macro":        "<1-2 sentences>",
+    "industry":     "<1-2 sentences>",
+    "volatility":   "<1-2 sentences>",
+    "event":        "<1-2 sentences>",
+    "flow":         "<1-2 sentences>",
+    "risk":         "<1-2 sentences — quote the stop-loss level>"
   },
-  "consensus_score": "<e.g. '6 of 9 leaning bullish, 2 bearish, 1 neutral' — count from the briefings>",
-  "debate_summary": "<3-4 sentences walking through the strongest bull argument, the strongest bear argument, and why the bull/bear ultimately won (or why you held).>",
+  "consensus_score": "<e.g. '6 of 10 leaning bullish, 3 bearish, 1 neutral' — count from the briefings>",
+  "debate_summary": "<3-4 sentences walking through the sharpest 1v1 rebuttal that landed, the most credible concession, and which desks ended up on which side after debate.>",
   "actionable_steps": ["<step 1: e.g. 'Wait for a pullback to 175 before entering'>", "<step 2>", "<step 3>"]
 }
 
@@ -370,9 +509,14 @@ Schema for OPTIONS mode:
   "decision": "<strategy name, e.g. 'Bull Call Spread'>",
   "conviction": <integer 1-10>,
   "direction": "bullish" | "bearish" | "neutral",
-  "thesis": "<5-7 sentences. Open with the IV regime, then the directional read, then why this specific structure dominates alternatives.>",
-  "structure": "<exact legs, e.g. 'Buy 1 AAPL Jun 175C @ ~$8.50, Sell 1 AAPL Jun 185C @ ~$3.20, net debit ~$5.30'>",
-  "expiration": "<target DTE range>",
+  "thesis": "<5-7 sentences. Open with the IV regime, then directional read, then why this structure dominates alternatives.>",
+  "structure": "<exact legs in prose, e.g. 'Buy 1 AAPL Jun 175C @ ~$8.50, Sell 1 AAPL Jun 185C @ ~$3.20, net debit ~$5.30'>",
+  "option_legs": [
+    {"type": "call" | "put", "side": "buy" | "sell", "strike": <number>, "premium": <number>, "quantity": <integer>, "expiration": "<YYYY-MM-DD>"},
+    ...
+  ],
+  "underlying_price": <number — current spot, taken from the data>,
+  "expiration": "<target DTE range, e.g. '30-45 days'>",
   "max_loss": "<absolute dollar>",
   "max_profit": "<absolute dollar>",
   "breakeven": "<single price>",
@@ -380,17 +524,18 @@ Schema for OPTIONS mode:
   "key_catalysts": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>"],
   "main_risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
   "synthesis": {
-    "bull":        "<1-2 sentences>",
-    "bear":        "<1-2 sentences>",
-    "technical":   "<1-2 sentences>",
-    "fundamental": "<1-2 sentences>",
-    "market":      "<1-2 sentences>",
-    "industry":    "<1-2 sentences>",
-    "financial":   "<1-2 sentences>",
-    "news":        "<1-2 sentences>",
-    "options":     "<1-2 sentences — most important for options mode>"
+    "quant":        "<1-2 sentences>",
+    "technical":    "<1-2 sentences>",
+    "fundamental":  "<1-2 sentences>",
+    "credit":       "<1-2 sentences>",
+    "macro":        "<1-2 sentences>",
+    "industry":     "<1-2 sentences>",
+    "volatility":   "<1-2 sentences — most important for options mode>",
+    "event":        "<1-2 sentences>",
+    "flow":         "<1-2 sentences>",
+    "risk":         "<1-2 sentences — quote the max-loss tolerance>"
   },
-  "consensus_score": "<e.g. '6 of 9 leaning bullish'>",
+  "consensus_score": "<e.g. '6 of 10 leaning bullish'>",
   "debate_summary": "<3-4 sentences>",
   "actionable_steps": ["<step 1>", "<step 2>", "<step 3>"]
 }
@@ -404,15 +549,18 @@ JSON 键名是英文，但所有值必须是中文。
 
 只返回一个有效的 JSON 对象——不要前言、不要 markdown 代码块。
 
-你**必须**包含 `synthesis` 字段——逐个研究员的推理链，说明每位研究员的观点如何影响你的最终决策。
-必须包含全部 9 位研究员的 ID：bull、bear、technical、fundamental、market、industry、financial、news、options。
+你**必须**包含 `synthesis` 字段——逐个分析师的推理链，说明每个席位的观点如何影响你的最终决策。
+必须包含全部 10 位分析师的 ID：quant、technical、fundamental、credit、macro、industry、volatility、event、flow、risk。
+
+期权模式下你**必须**填写 `option_legs` 数组，前端用它来渲染实时盈亏图与 What-If 滑块。
+每条腿包含 {type, side, strike, premium, quantity, expiration} 字段。
 
 股票模式 Schema:
 {
   "decision": "buy" | "hold" | "sell",
   "conviction": <1 到 10 的整数>,
   "time_horizon": "<例如 '1-3 个月'，中文>",
-  "thesis": "<5-7 句话。开头点明主导信号，然后说明如何权衡多空双方，技术面/基本面贡献了什么，期权市场在定价什么。最后一句：什么信号会确认或推翻决策。中文。>",
+  "thesis": "<5-7 句话。开头点明主导信号，然后说明如何权衡 10 位分析师的观点，最后一句给出确认或推翻决策的触发条件。中文。>",
   "entry_zone": "<价格区间，例如 '$175-180'>",
   "target_price": "<目标价>",
   "stop_loss": "<止损价>",
@@ -420,18 +568,19 @@ JSON 键名是英文，但所有值必须是中文。
   "key_catalysts": ["<催化剂 1，中文>", "<催化剂 2，中文>", "<催化剂 3，中文>"],
   "main_risks": ["<风险 1，中文>", "<风险 2，中文>", "<风险 3，中文>"],
   "synthesis": {
-    "bull":        "<1-2 句话：看多研究员的观点如何影响决策。中文。>",
-    "bear":        "<1-2 句话，中文>",
-    "technical":   "<1-2 句话，中文>",
-    "fundamental": "<1-2 句话，中文>",
-    "market":      "<1-2 句话，中文>",
-    "industry":    "<1-2 句话，中文>",
-    "financial":   "<1-2 句话，中文>",
-    "news":        "<1-2 句话，中文>",
-    "options":     "<1-2 句话，中文>"
+    "quant":        "<1-2 句话：量化因子席位的观点如何影响决策。中文。>",
+    "technical":    "<1-2 句话，中文>",
+    "fundamental":  "<1-2 句话，中文>",
+    "credit":       "<1-2 句话，中文>",
+    "macro":        "<1-2 句话，中文>",
+    "industry":     "<1-2 句话，中文>",
+    "volatility":   "<1-2 句话，中文>",
+    "event":        "<1-2 句话，中文>",
+    "flow":         "<1-2 句话，中文>",
+    "risk":         "<1-2 句话——必须引用止损价位。中文。>"
   },
-  "consensus_score": "<例如 '9 位研究员中 6 位看多、2 位看空、1 位中性'——根据简报数清楚。中文。>",
-  "debate_summary": "<3-4 句话，走一遍最强的多头论点、最强的空头论点，以及最终多/空胜出（或观望）的原因。中文。>",
+  "consensus_score": "<例如 '10 位分析师中 6 位看多、3 位看空、1 位中性'——根据简报数清楚。中文。>",
+  "debate_summary": "<3-4 句话，复盘 1v1 交叉质询中最致命的反驳、最有说服力的让步、辩论结束后各席位最终的归属。中文。>",
   "actionable_steps": ["<步骤 1：例如 '等待回踩 175 美元再入场'，中文>", "<步骤 2，中文>", "<步骤 3，中文>"]
 }
 
@@ -441,8 +590,13 @@ JSON 键名是英文，但所有值必须是中文。
   "conviction": <1 到 10 的整数>,
   "direction": "bullish" | "bearish" | "neutral",
   "thesis": "<5-7 句话。开头点明 IV 机制，再写方向判断，最后解释为何此结构优于其他备选。中文。>",
-  "structure": "<完整腿，例如 '买入 1 张 AAPL 6 月 175C @ 约 $8.50，卖出 1 张 AAPL 6 月 185C @ 约 $3.20，净支出约 $5.30'>",
-  "expiration": "<目标到期日范围，中文>",
+  "structure": "<完整腿（中文表述），例如 '买入 1 张 AAPL 6 月 175C @ 约 $8.50，卖出 1 张 AAPL 6 月 185C @ 约 $3.20，净支出约 $5.30'>",
+  "option_legs": [
+    {"type": "call" | "put", "side": "buy" | "sell", "strike": <数字>, "premium": <数字>, "quantity": <整数>, "expiration": "<YYYY-MM-DD>"},
+    ...
+  ],
+  "underlying_price": <数字——当前现货价，从数据中取>,
+  "expiration": "<目标到期日范围，例如 '30-45 天'，中文>",
   "max_loss": "<绝对美元数额>",
   "max_profit": "<绝对美元数额>",
   "breakeven": "<盈亏平衡价>",
@@ -450,17 +604,18 @@ JSON 键名是英文，但所有值必须是中文。
   "key_catalysts": ["<催化剂 1，中文>", "<催化剂 2，中文>", "<催化剂 3，中文>"],
   "main_risks": ["<风险 1，中文>", "<风险 2，中文>", "<风险 3，中文>"],
   "synthesis": {
-    "bull":        "<1-2 句话，中文>",
-    "bear":        "<1-2 句话，中文>",
-    "technical":   "<1-2 句话，中文>",
-    "fundamental": "<1-2 句话，中文>",
-    "market":      "<1-2 句话，中文>",
-    "industry":    "<1-2 句话，中文>",
-    "financial":   "<1-2 句话，中文>",
-    "news":        "<1-2 句话，中文>",
-    "options":     "<1-2 句话——期权模式下此项最重要。中文。>"
+    "quant":        "<1-2 句话，中文>",
+    "technical":    "<1-2 句话，中文>",
+    "fundamental":  "<1-2 句话，中文>",
+    "credit":       "<1-2 句话，中文>",
+    "macro":        "<1-2 句话，中文>",
+    "industry":     "<1-2 句话，中文>",
+    "volatility":   "<1-2 句话——期权模式下此项最重要。中文。>",
+    "event":        "<1-2 句话，中文>",
+    "flow":         "<1-2 句话，中文>",
+    "risk":         "<1-2 句话——必须引用最大亏损上限。中文。>"
   },
-  "consensus_score": "<例如 '9 位研究员中 6 位看多'，中文>",
+  "consensus_score": "<例如 '10 位分析师中 6 位看多'，中文>",
   "debate_summary": "<3-4 句话，中文>",
   "actionable_steps": ["<步骤 1，中文>", "<步骤 2，中文>", "<步骤 3，中文>"]
 }
@@ -522,10 +677,11 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
         fetcher.get_historical_volatility(ticker),
         fetcher.get_news(ticker, limit=8),
         fetcher.get_analyst_data(ticker),
-        fetcher.get_ohlcv(ticker, "1y", "1d"),    # for technical indicators
+        fetcher.get_ohlcv(ticker, "1y", "1d"),    # for technical indicators + risk metrics
         fetch_fundamental_metrics(fetcher, ticker),
         fetch_market_context(fetcher),
         fetch_sector_etf_context(fetcher, ticker),
+        fetch_flow_context(fetcher, ticker),       # new: short interest + smart money
     ]
     if options_snapshot_task is not None:
         tasks.append(options_snapshot_task)
@@ -545,7 +701,8 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
     fundamental = _safe(4, {}) or {}
     market_ctx = _safe(5, {}) or {}
     sector_ctx = _safe(6, {}) or {}
-    idx = 7
+    flow_ctx = _safe(7, {}) or {}
+    idx = 8
     options_snapshot: dict = {}
     gex_data: dict = {}
     if options_snapshot_task is not None:
@@ -567,11 +724,13 @@ async def gather_research_context(ticker: str, fetcher: DataFetcher) -> dict:
         "options_snapshot": options_snapshot,
         "gex": gex_data,
         "target_expiration": target_exp,
-        # Newly added — researcher-specialty data
+        "ohlcv_bars": bars or [],
+        # Specialty data per researcher
         "technicals": technicals,
         "fundamental": fundamental,
         "market_ctx": market_ctx,
         "sector_ctx": sector_ctx,
+        "flow_ctx": flow_ctx,
     }
 
 
@@ -683,38 +842,55 @@ def format_context_for_researcher(ctx: dict, mode: AnalysisMode, locale: str) ->
 
 def format_researcher_specific_context(ctx: dict, researcher_id: str, mode: AnalysisMode, locale: str) -> str:
     """
-    Build a researcher-specific prompt block.
+    Build a domain-locked prompt block for one analyst.
 
-    Each researcher receives:
-      1. The base context (always — they all need price/IV/news)
-      2. PLUS a specialized block tailored to their domain
+    Each analyst receives:
+      1. A minimal universal header (ticker + spot + change% only)
+      2. ONLY their own specialty data block — nothing else
 
-    This makes Technical, Fundamental, Market, Industry, and Financial
-    researchers genuinely different from a generic LLM rephrasing.
+    This is a hard constraint: by withholding all other domains' data
+    from the prompt, we make it physically impossible for one analyst
+    to reuse another's evidence. Each output is therefore traceable
+    to a unique data block.
     """
-    base = format_context_for_researcher(ctx, mode, locale)
+    header = format_minimal_header(ctx, mode, locale)
 
-    # Researchers that get extra specialized data
     technicals = ctx.get("technicals") or {}
     fundamental = ctx.get("fundamental") or {}
     market_ctx = ctx.get("market_ctx") or {}
     sector_ctx = ctx.get("sector_ctx") or {}
+    flow_ctx = ctx.get("flow_ctx") or {}
     market = ctx.get("market") or {}
+    options_snapshot = ctx.get("options_snapshot") or {}
+    gex = ctx.get("gex") or {}
+    news = ctx.get("news") or []
+    analyst_data = ctx.get("analyst") or {}
+    hv = ctx.get("hv") or {}
+    ohlcv_bars = ctx.get("ohlcv_bars") or []
 
-    extra = ""
-    if researcher_id == "technical":
-        extra = format_technical_block(technicals, locale)
+    block: str = ""
+    if researcher_id == "quant":
+        block = format_quant_block(technicals, fundamental, locale)
+    elif researcher_id == "technical":
+        block = format_technical_block(technicals, locale)
     elif researcher_id == "fundamental":
-        extra = format_fundamental_block(fundamental, locale)
-    elif researcher_id == "financial":
-        extra = format_financial_block(fundamental, locale)
-    elif researcher_id == "market":
-        extra = format_market_block(market_ctx, locale)
+        block = format_fundamental_block(fundamental, locale)
+    elif researcher_id == "credit":
+        block = format_credit_block(fundamental, locale)
+    elif researcher_id == "macro":
+        block = format_market_block(market_ctx, locale)
     elif researcher_id == "industry":
-        extra = format_industry_block(sector_ctx, market.get("change_pct"), locale)
-    # Bull / Bear / News / Options use the base context only (already rich)
+        block = format_industry_block(sector_ctx, market.get("change_pct"), locale)
+    elif researcher_id == "volatility":
+        block = format_volatility_block(market, options_snapshot, gex, hv, locale)
+    elif researcher_id == "event":
+        block = format_event_block(news, market, analyst_data, locale)
+    elif researcher_id == "flow":
+        block = format_flow_block(flow_ctx, fundamental, options_snapshot, locale)
+    elif researcher_id == "risk":
+        block = format_risk_block(technicals, fundamental, ohlcv_bars, locale)
 
-    return f"{base}\n\n{extra}\n" if extra else base
+    return f"{header}\n\n{block}\n" if block else header
 
 
 # ============================================================
@@ -840,41 +1016,41 @@ class TraderAgentPipeline:
         if locale == "zh":
             mode_phrase = "期权交易建议" if mode == "options" else "股票交易建议"
             role_intro = (
-                f"你是投资决策投资经理（Portfolio Manager / PM）。"
-                f"你刚听取了 9 位研究员（看多、看空、技术面、基本面、市场、行业、财务、新闻事件、期权）的完整简报。"
+                f"你是投资经理（Portfolio Manager / PM）。"
+                f"你刚听取了 10 位专业分析师的完整简报：量化、技术、基本面、信用、宏观、行业、波动率、事件、资金流、风险。"
+                f"每位分析师只看到自己专属的数据块，所以他们的证据是真正独立的。"
                 f"现在你必须做出最终决定，给出{mode_phrase}。\n\n"
                 "决策要求：\n"
-                "1. 权衡 9 位研究员的论据，识别共识与分歧；\n"
-                "2. 必须填写 synthesis 字段，逐个解释每位研究员的观点如何影响最终决策；\n"
+                "1. 权衡 10 位分析师的论据，识别共识与分歧；\n"
+                "2. 必须填写 synthesis 字段，逐个解释每位分析师的观点如何影响最终决策；\n"
                 "3. consensus_score 字段需要明确数清楚有多少位看多/看空/中性；\n"
                 "4. thesis 必须 5-7 句话，写出完整的推理链条；\n"
-                "5. debate_summary 必须复盘**全员交叉辩论**——哪条反驳最致命、哪个让步最有说服力、辩论结束后各研究员最终落在哪一边；\n"
+                "5. debate_summary 必须复盘**1v1 交叉辩论**——哪条反驳最致命、哪个让步最有说服力、辩论结束后各席位最终的归属；\n"
                 "6. actionable_steps 至少 3 步具体执行步骤；\n"
-                "7. 不要骑墙——给出明确的方向和数字。\n"
-                "8. 所有输出必须使用简体中文。"
+                "7. 期权模式下你**必须**正确填写 option_legs 数组（type/side/strike/premium/quantity/expiration）和 underlying_price，前端用它渲染盈亏图；\n"
+                "8. 风险席位的止损建议必须并入最终的 stop_loss 或 max_loss 字段；\n"
+                "9. 不要骑墙——给出明确的方向和数字。\n"
+                "10. 所有输出必须使用简体中文。"
             )
             instruction = MANAGER_OUTPUT_INSTRUCTION_ZH
             lang_directive = "重要：所有输出值必须全部使用简体中文。不要混合中英文。"
         else:
             mode_phrase = "options trade recommendation" if mode == "options" else "stock trade recommendation"
             role_intro = (
-                f"You are the Portfolio Manager. You just heard from 9 researchers "
-                f"(Bull, Bear, Technical, Fundamental, Market, Industry, Financial, News & Events, Options) "
-                f"must now make the final {mode_phrase}. Weigh the bull and bear arguments, "
-                "identify consensus and disagreement, and make a decisive call. "
-                "Do not sit on the fence — give a clear direction."
-            )
-            role_intro += (
-                "and must now make the final " + mode_phrase + ".\n\n"
+                f"You are the Portfolio Manager. You just heard from 10 specialist analysts "
+                f"(Quant, Technical, Fundamental, Credit, Macro, Industry, Volatility, Event, Flow, Risk). "
+                f"Each analyst saw ONLY their own specialty data block, so their evidence is genuinely independent.\n\n"
                 "Decision requirements:\n"
-                "1. Weigh all 9 researchers' arguments; identify consensus and disagreement.\n"
-                "2. You MUST fill the `synthesis` object: explain how each researcher's view influenced the call.\n"
+                "1. Weigh all 10 analysts' arguments; identify consensus and disagreement.\n"
+                "2. You MUST fill the `synthesis` object: one entry per analyst ID.\n"
                 "3. `consensus_score` should explicitly count how many lean bullish / bearish / neutral.\n"
                 "4. `thesis` must be 5-7 sentences with a complete reasoning chain.\n"
-                "5. `debate_summary` must summarise the full-team cross-examination — the sharpest rebuttal that landed, the most credible concession, and which desks ended up on which side after the debate.\n"
+                "5. `debate_summary` must summarise the 1v1 cross-examination — the sharpest rebuttal that landed, the most credible concession, and which desks ended up on which side after debate.\n"
                 "6. `actionable_steps` must contain at least 3 concrete steps.\n"
-                "7. Do not sit on the fence — give a clear direction and concrete numbers.\n"
-                "8. All output values must be in English only."
+                "7. For OPTIONS mode you MUST correctly fill `option_legs` (type/side/strike/premium/quantity/expiration) and `underlying_price` — the frontend uses these to render the live payoff diagram.\n"
+                "8. The Risk desk's stop-loss recommendation must be reflected in the final `stop_loss` or `max_loss` field.\n"
+                "9. Do not sit on the fence — give a clear direction and concrete numbers.\n"
+                "10. All output values must be in English only."
             )
             instruction = MANAGER_OUTPUT_INSTRUCTION_EN
             lang_directive = "IMPORTANT: All output values must be in ENGLISH ONLY. Do not mix languages."
@@ -897,7 +1073,7 @@ class TraderAgentPipeline:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.3,
-                max_tokens=2200,  # raised: synthesis + actionable_steps + extended thesis
+                max_tokens=2600,  # raised: synthesis (10) + actionable_steps + option_legs + thesis
             )
             content = resp.choices[0].message.content or ""
             return self._parse_json(content)
@@ -965,33 +1141,33 @@ class TraderAgentPipeline:
 
         if is_zh:
             role = (
-                f"你是 {own_name}。你刚发表了你的第一轮观点，现在 {opp_name} 发表了一个不同的观点。"
-                "你需要从**你自己专业角度**出发，给出一段简短的辩论回应：反驳他们最强的一点，"
+                f"你是 {own_name}。你刚发表了你的第一轮观点，现在 {opp_name} 发表了一个相反立场的观点。"
+                "你需要从**你自己专业角度**出发，给出一段简短的辩论回应：反驳对方最强的一点，"
                 "但要诚实——必须承认对方至少一个合理之处。"
                 "然后用**你专业领域内的新数据**强化你自己的论点。"
-                "不要重复已经说过的话，也不要侵入对方的专业领域去抢话题。"
+                "不要重复你第一轮已经说过的话，也不要侵入对方的专业领域（量化/技术/基本面/信用/宏观/行业/波动率/事件/资金流/风险）。"
             )
             instruction = (
                 "只返回 JSON：\n"
                 "{\n"
                 '  "rebuttal": "<2-3 句话：直接反驳对方最强的论点，中文>",\n'
-                '  "reinforced_evidence": "<1-2 句话：用数据强化你的立场，中文>",\n'
+                '  "reinforced_evidence": "<1-2 句话：用你专业领域内的数据强化你的立场，中文>",\n'
                 '  "concession": "<1 句话：诚实承认对方说对的地方，中文>"\n'
                 "}"
             )
         else:
             role = (
-                f"You are the {own_name}. You just published your first-round view; now the {opp_name} has published a differing view. "
+                f"You are the {own_name}. You just published your first-round view; now the {opp_name} has published an OPPOSING view. "
                 "Write a short debate response from YOUR specialty's perspective: rebut their strongest point, but be intellectually honest — "
                 "you MUST concede at least one point they got right. Then reinforce your own thesis with NEW evidence drawn strictly from your "
-                "domain (technical / macro / fundamental / industry / etc.). Do not repeat your first-round prose, and do not invade your "
-                "opponent's domain to score points."
+                "domain (quant / technical / fundamental / credit / macro / industry / volatility / event / flow / risk). "
+                "Do not repeat your first-round prose, and do not invade your opponent's domain to score points."
             )
             instruction = (
                 "Return JSON only:\n"
                 "{\n"
                 '  "rebuttal": "<2-3 sentences directly rebutting their strongest argument, ENGLISH>",\n'
-                '  "reinforced_evidence": "<1-2 sentences using data to strengthen your stance, ENGLISH>",\n'
+                '  "reinforced_evidence": "<1-2 sentences using YOUR domain data to strengthen your stance, ENGLISH>",\n'
                 '  "concession": "<1 sentence honestly conceding what they got right, ENGLISH>"\n'
                 "}"
             )
@@ -1040,22 +1216,23 @@ class TraderAgentPipeline:
         Run the full pipeline. Yields SSE-formatted strings.
 
         Args:
-            selected_researchers: optional list of researcher IDs to run.
-                If None or empty, all 9 run. Bull and Bear MUST both be
-                included for the debate phase to fire — if only one is
-                selected, debate is silently skipped.
+            selected_researchers: optional list of analyst IDs to run.
+                If None or empty, all 10 run. Debate fires automatically
+                between any two analysts with opposing stances; if all
+                selected analysts share the same stance, debate is skipped.
 
         Phases:
-          1. gathering_data — fetch all market + technical + fundamental data
-          2. research_start — N selected researchers in parallel
-          3. debate_start   — Bull rebuts Bear and vice-versa (only if both selected)
-          4. manager_start  — PM synthesizes everything
+          1. gathering_data — fetch all specialty data blocks in parallel
+          2. research_start — N selected analysts run in parallel, each
+             seeing ONLY their own domain block (hard differentiation)
+          3. debate_start   — strict 1v1 cross-examination by opposing stance
+          4. manager_start  — PM synthesises with per-analyst attribution
 
         Events emitted:
           - data: {"type": "phase", "phase": "<phase_name>"}
-          - data: {"type": "selected", "ids": [...], "count": N}  (NEW)
+          - data: {"type": "selected", "ids": [...], "count": N}
           - data: {"type": "researcher", "result": {...}}
-          - data: {"type": "rebuttal", "id": "bull|bear", "rebuttal": {...}}
+          - data: {"type": "rebuttal", "id": "<id>", "opponent_id": "<id>", "rebuttal": {...}}
           - data: {"type": "manager", "result": {...}}
           - data: {"type": "done", "researchers": [...], "manager": {...}}
           - data: {"type": "error", "message": "..."}
@@ -1102,11 +1279,16 @@ class TraderAgentPipeline:
             order = list(RESEARCHER_SPECS.keys())
             researcher_results.sort(key=lambda r: order.index(r["id"]) if r["id"] in order else 999)
 
-            # 3. Debate phase — every researcher cross-examines a peer.
+            # 3. Debate phase — strict 1v1 cross-examination by opposing stance.
             #
-            # Pairing strategy: prefer an opposing-stance peer; if none exists,
-            # pair with a different-domain peer so the rebuttal still adds new
-            # information rather than rephrasing the same view.
+            # Pairing rules (in priority order):
+            #   a) Pair with the highest-confidence opponent of OPPOSING stance.
+            #   b) For neutrals: pair with the highest-confidence non-neutral peer.
+            #   c) If no opposing voice exists at all (rare consensus case): skip
+            #      this analyst's rebuttal — there is no real debate to be had.
+            #
+            # This prevents the v2 problem where every analyst was forced into a
+            # rebuttal even when no genuine disagreement existed.
             yield self._sse({"type": "phase", "phase": "debate_start"})
             rebuttals: dict[str, dict] = {}
             results_by_id = {r["id"]: r for r in researcher_results}
@@ -1118,22 +1300,19 @@ class TraderAgentPipeline:
             for r in researcher_results:
                 rid = r["id"]
                 own_stance = r.get("stance", "neutral")
-                target_stance = _opposite_stance(own_stance)
-                # Prefer a researcher with opposite stance + highest confidence.
-                candidates = [
-                    o for o in researcher_results
-                    if o["id"] != rid and o.get("stance") == target_stance
-                ]
-                if not candidates and own_stance == "neutral":
-                    # Neutral peers debate the loudest non-neutral voice
+                if own_stance in ("bullish", "bearish"):
+                    target_stance = _opposite_stance(own_stance)
+                    candidates = [
+                        o for o in researcher_results
+                        if o["id"] != rid and o.get("stance") == target_stance
+                    ]
+                else:  # neutral
                     candidates = [
                         o for o in researcher_results
                         if o["id"] != rid and o.get("stance") in ("bullish", "bearish")
                     ]
                 if not candidates:
-                    # No direct opposite — pair with the most confident other researcher.
-                    candidates = [o for o in researcher_results if o["id"] != rid]
-                if not candidates:
+                    # No genuine opposing voice — skip rather than fabricate a debate.
                     continue
                 opponent = max(candidates, key=lambda o: o.get("confidence", 0) or 0)
                 debate_pairs.append((rid, opponent["id"]))

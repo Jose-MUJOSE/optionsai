@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Newspaper, Calendar, Target, Loader2, Search, ArrowUpRight, Clock } from "lucide-react";
+import { ExternalLink, Newspaper, Calendar, Target, Loader2, Search, ArrowUpRight, Clock, RefreshCcw } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { t, type Locale } from "@/lib/i18n";
 import { useWatchlist } from "@/lib/watchlist";
-import { fetchMarketIntel, type MarketIntelResponse } from "@/lib/api";
+import { fetchMarketIntel, fetchPaginatedNews, type MarketIntelResponse, type NewsItem } from "@/lib/api";
 
 type Tab = "news" | "events" | "analysts";
 
@@ -56,6 +56,10 @@ export default function NewsPanel() {
   const [feedFilter, setFeedFilter] = useState<string>("all"); // ticker filter
   const [feedData, setFeedData] = useState<Record<string, FeedEntry>>({});
   const [loadingSet, setLoadingSet] = useState<Set<string>>(new Set());
+  // Extra news pages fetched on demand via "Load older news" — keyed by ticker.
+  const [extraPages, setExtraPages] = useState<Record<string, NewsItem[]>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [exhausted, setExhausted] = useState<Set<string>>(new Set());
   // Infinite-scroll: show N items at a time, grow with IntersectionObserver
   const NEWS_PAGE_SIZE = 20;
   const [visibleCount, setVisibleCount] = useState<number>(NEWS_PAGE_SIZE);
@@ -122,6 +126,11 @@ export default function NewsPanel() {
     const rows = aggregated.flatMap(({ tk, intel }) =>
       intel.news.map((n) => ({ ...n, tk }))
     );
+    // Layer in any extra pages fetched via "Load older news"
+    Object.entries(extraPages).forEach(([tk, items]) => {
+      if (feedFilter !== "all" && tk !== feedFilter) return;
+      items.forEach((n) => rows.push({ ...n, tk }));
+    });
     // De-duplicate by URL or title (same article may appear on multiple tickers)
     const seen = new Set<string>();
     const unique = rows.filter((n) => {
@@ -132,7 +141,59 @@ export default function NewsPanel() {
     });
     unique.sort((a, b) => (a.date < b.date ? 1 : -1));
     return unique;
-  }, [aggregated]);
+  }, [aggregated, extraPages, feedFilter]);
+
+  // List of tickers to load older news for — current filter, or all visible ones
+  const targetsForLoadMore = useMemo(() => {
+    if (feedFilter !== "all") return exhausted.has(feedFilter) ? [] : [feedFilter];
+    return aggregated.map((a) => a.tk).filter((tk) => !exhausted.has(tk));
+  }, [feedFilter, aggregated, exhausted]);
+
+  // Click "Load older news" — fetches the next page from the paginated endpoint.
+  const loadOlderNews = async () => {
+    if (loadingMore || targetsForLoadMore.length === 0) return;
+    setLoadingMore(true);
+    try {
+      await Promise.all(
+        targetsForLoadMore.map(async (tk) => {
+          const cachedSize =
+            (feedData[tk]?.intel.news?.length ?? 0) + (extraPages[tk]?.length ?? 0);
+          try {
+            const page = await fetchPaginatedNews({
+              ticker: tk,
+              locale,
+              offset: cachedSize,
+              limit: 10,
+              relevanceFilter: false, // older pages skip the LLM filter to keep latency low
+            });
+            if (page.items.length === 0) {
+              setExhausted((prev) => {
+                const next = new Set(prev);
+                next.add(tk);
+                return next;
+              });
+              return;
+            }
+            setExtraPages((prev) => ({
+              ...prev,
+              [tk]: [...(prev[tk] ?? []), ...page.items],
+            }));
+            if (!page.has_more) {
+              setExhausted((prev) => {
+                const next = new Set(prev);
+                next.add(tk);
+                return next;
+              });
+            }
+          } catch {
+            // skip ticker on error — never block the user
+          }
+        }),
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const allEvents = useMemo(() => {
     const rows = aggregated.flatMap(({ tk, intel }) =>
@@ -396,7 +457,28 @@ export default function NewsPanel() {
               {t("news.loadingMore", locale)}
             </div>
           )}
-          {!hasMore && allNews.length > NEWS_PAGE_SIZE && (
+          {!hasMore && targetsForLoadMore.length > 0 && (
+            <div className="flex justify-center py-6">
+              <button
+                onClick={loadOlderNews}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--accent)]" />
+                    {locale === "zh" ? "加载更早新闻..." : "Loading older news..."}
+                  </>
+                ) : (
+                  <>
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                    {locale === "zh" ? "加载更早的新闻" : "Load older news"}
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          {!hasMore && targetsForLoadMore.length === 0 && allNews.length > NEWS_PAGE_SIZE && (
             <div className="text-center py-6 text-[11px] text-[var(--text-3)] tracking-widest uppercase">
               {t("news.endOfFeed", locale)}
             </div>

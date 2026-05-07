@@ -425,6 +425,47 @@ export async function fetchMarketIntel(ticker: string, locale: string): Promise<
   return res.json();
 }
 
+export interface PaginatedNewsResponse {
+  ticker: string;
+  items: NewsItem[];
+  total: number;
+  has_more: boolean;
+  next_offset: number | null;
+}
+
+export interface FetchNewsParams {
+  ticker: string;
+  locale: string;
+  offset?: number;
+  limit?: number;
+  /** Use the LLM relevance filter on the first page. */
+  relevanceFilter?: boolean;
+}
+
+export async function fetchPaginatedNews({
+  ticker,
+  locale,
+  offset = 0,
+  limit = 10,
+  relevanceFilter = true,
+}: FetchNewsParams): Promise<PaginatedNewsResponse> {
+  const res = await fetch(`${API_URL}/api/news/${ticker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      locale,
+      offset,
+      limit,
+      relevance_filter: relevanceFilter,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to fetch news");
+  }
+  return res.json();
+}
+
 export async function* streamTopPick(params: Record<string, unknown>): AsyncGenerator<string> {
   const res = await fetch(`${API_URL}/api/top-pick`, {
     method: "POST",
@@ -951,17 +992,36 @@ export interface ResearcherResult {
   rebuttal?: ResearcherRebuttal;
 }
 
-/** Per-researcher synthesis written by the PM. Keys mirror researcher IDs. */
+/** Per-analyst synthesis written by the PM. Keys mirror v3 analyst IDs. */
 export interface ManagerSynthesis {
-  bull?: string;
-  bear?: string;
+  quant?: string;
   technical?: string;
   fundamental?: string;
-  market?: string;
+  credit?: string;
+  macro?: string;
   industry?: string;
+  volatility?: string;
+  event?: string;
+  flow?: string;
+  risk?: string;
+  // legacy v2 keys (kept so old localStorage entries still type-check)
+  bull?: string;
+  bear?: string;
+  market?: string;
   financial?: string;
   news?: string;
   options?: string;
+}
+
+/** A single option leg returned by the PM in OPTIONS mode. The frontend
+ *  uses these fields to drive the live payoff chart + What-If sliders. */
+export interface TraderOptionLeg {
+  type: "call" | "put";
+  side: "buy" | "sell";
+  strike: number;
+  premium: number;
+  quantity: number;
+  expiration?: string;
 }
 
 export interface ManagerStockDecision {
@@ -987,6 +1047,11 @@ export interface ManagerOptionsDecision {
   direction?: "bullish" | "bearish" | "neutral" | string;
   thesis?: string;
   structure?: string;
+  /** Structured legs the frontend uses to render the payoff chart. */
+  option_legs?: TraderOptionLeg[];
+  /** Spot price at the time of analysis — used as default x-axis center
+   *  for the payoff chart. */
+  underlying_price?: number;
   expiration?: string;
   max_loss?: string;
   max_profit?: string;

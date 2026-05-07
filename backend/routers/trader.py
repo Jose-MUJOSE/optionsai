@@ -386,29 +386,31 @@ def _build_word_report(req: TraderReportRequest) -> bytes:
             add_heading("辩论复盘" if is_zh else "Debate Recap", level=2)
             add_para(str(debate), size=10.5, space_after=8)
 
-    # ----- Per-researcher Synthesis -------------------------------------
+    # ----- Per-analyst Synthesis (v3 lineup) ----------------------------
     synthesis = m.get("synthesis", {}) or {}
     if synthesis:
-        add_heading("六、各研究员观点综合" if is_zh else "6. Per-Researcher Synthesis", level=1)
-        order = ["bull", "bear", "technical", "fundamental", "market", "industry", "financial", "news", "options"]
-        name_map_zh = {
-            "bull": "看多策略师", "bear": "看空策略师", "technical": "首席技术分析师",
-            "fundamental": "高级股票分析师", "market": "首席宏观策略师", "industry": "行业首席分析师",
-            "financial": "财务质量分析师", "news": "事件催化师", "options": "波动率策略师",
-        }
-        name_map_en = {
-            "bull": "Bull-Side Strategist", "bear": "Short-Side Strategist",
-            "technical": "Chief Technical Analyst", "fundamental": "Senior Equity Analyst",
-            "market": "Chief Macro Strategist", "industry": "Sector Coverage Lead",
-            "financial": "Earnings-Quality Analyst", "news": "Catalyst Analyst",
-            "options": "Volatility Strategist",
-        }
+        add_heading("六、各分析师观点综合" if is_zh else "6. Per-Analyst Synthesis", level=1)
+        # Pull labels from the canonical RESEARCHER_SPECS so the report
+        # always matches the live analyst lineup.
+        order = list(RESEARCHER_SPECS.keys())
+        # Legacy v2 fallbacks so old saved analyses still render
+        legacy_labels_zh = {"bull": "看多策略师", "bear": "看空策略师", "market": "宏观策略师",
+                            "financial": "财务质量分析师", "news": "事件催化师", "options": "波动率策略师"}
+        legacy_labels_en = {"bull": "Bull Researcher", "bear": "Bear Researcher", "market": "Macro Strategist",
+                            "financial": "Earnings-Quality Analyst", "news": "Catalyst Analyst", "options": "Volatility Strategist"}
         synth_rows: list[tuple[str, str]] = []
         for key in order:
             text = synthesis.get(key)
             if text:
-                label = name_map_zh[key] if is_zh else name_map_en[key]
+                spec = RESEARCHER_SPECS[key]
+                label = spec["name_zh"] if is_zh else spec["name_en"]
                 synth_rows.append((label, str(text)))
+        # Preserve any legacy keys (bull/bear/etc.) that older history entries carry
+        for key, text in synthesis.items():
+            if key in order or not text:
+                continue
+            label = (legacy_labels_zh if is_zh else legacy_labels_en).get(key, key.title())
+            synth_rows.append((label, str(text)))
         add_kv_table(synth_rows)
 
     # ----- Researcher Briefings -----------------------------------------

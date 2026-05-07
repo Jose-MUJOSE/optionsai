@@ -520,44 +520,10 @@ def format_fundamental_block(fund: dict, locale: str) -> str:
     return "\n".join(lines)
 
 
+# Legacy alias — same data, kept for any external importers. Prefer
+# `format_credit_block` in new code.
 def format_financial_block(fund: dict, locale: str) -> str:
-    """Block for Financial Researcher — focus on balance-sheet quality."""
-    if not fund:
-        return ""
-    is_zh = locale == "zh"
-    title = "### 财务质量指标（你的专属数据）" if is_zh else "### Financial-Quality Metrics (your specialty)"
-    lines = [title]
-
-    debt_eq = fund.get("debt_to_equity")
-    cur_ratio = fund.get("current_ratio")
-    quick = fund.get("quick_ratio")
-    parts = []
-    if debt_eq is not None: parts.append(f"D/E {debt_eq:.2f}")
-    if cur_ratio is not None: parts.append(f"Current {cur_ratio:.2f}")
-    if quick is not None: parts.append(f"Quick {quick:.2f}")
-    if parts:
-        lines.append(f"- {'偿债能力' if is_zh else 'Solvency'}: {' | '.join(parts)}")
-
-    cash = fund.get("total_cash")
-    debt = fund.get("total_debt")
-    if cash is not None and debt is not None:
-        net_cash = cash - debt
-        net_label = ("净现金" if is_zh else "net cash") if net_cash > 0 else ("净负债" if is_zh else "net debt")
-        lines.append(f"- {'资产负债表' if is_zh else 'Balance sheet'}: Cash {_fmt_num(cash)} | Debt {_fmt_num(debt)} | {net_label} {_fmt_num(abs(net_cash))}")
-
-    fcf = fund.get("free_cash_flow")
-    ocf = fund.get("operating_cash_flow")
-    mc = fund.get("market_cap")
-    if fcf is not None and mc is not None and mc > 0:
-        fcf_yield = fcf / mc * 100
-        lines.append(f"- FCF Yield: {fcf_yield:.2f}% (FCF {_fmt_num(fcf)} / Cap {_fmt_num(mc)})")
-
-    short_pct = fund.get("short_pct_float")
-    if short_pct is not None:
-        signal = ("空头拥挤" if is_zh else "crowded short") if short_pct > 0.10 else ("空头偏低" if is_zh else "low short")
-        lines.append(f"- {'空头占流通股' if is_zh else 'Short % float'}: {short_pct * 100:.2f}% ({signal})")
-
-    return "\n".join(lines)
+    return format_credit_block(fund, locale)
 
 
 def format_market_block(market_ctx: dict, locale: str) -> str:
@@ -613,5 +579,433 @@ def format_industry_block(sector_ctx: dict, ticker_change_pct: Optional[float], 
         rel = ticker_change_pct - etf_chg
         signal = ("强于板块" if is_zh else "outperforming") if rel > 0.5 else ("弱于板块" if is_zh else "underperforming") if rel < -0.5 else ("跟随板块" if is_zh else "in line")
         lines.append(f"- {'相对板块强弱' if is_zh else 'Relative strength'}: {rel:+.2f}% vs {etf_sym} ({signal})")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# Minimal universal header — every analyst sees ticker + spot only
+# ==================================================================
+
+def format_minimal_header(ctx: dict, mode: str, locale: str) -> str:
+    """A 3-line header given to every analyst. Carries no domain evidence —
+    it exists only so the analyst knows what they are analysing."""
+    is_zh = locale == "zh"
+    ticker = ctx.get("ticker", "?")
+    market = ctx.get("market") or {}
+    spot = market.get("spot_price")
+    chg = market.get("change_pct")
+
+    mode_label_zh = "期权策略分析" if mode == "options" else "股票分析"
+    mode_label_en = "Options Strategy Analysis" if mode == "options" else "Stock Analysis"
+
+    title = (
+        f"## {ticker} — {mode_label_zh}"
+        if is_zh
+        else f"## Research Brief — {ticker} ({mode_label_en})"
+    )
+    lines = [title]
+    if spot is not None:
+        if chg is not None:
+            lines.append(
+                f"- {'当前价' if is_zh else 'Spot'}: ${spot:.2f}  ({chg:+.2f}% {'今日' if is_zh else 'today'})"
+            )
+        else:
+            lines.append(f"- {'当前价' if is_zh else 'Spot'}: ${spot:.2f}")
+    lines.append(
+        "(以下数据是**你席位独享**的领域数据。请仅基于这些数据下判断。)"
+        if is_zh
+        else "(The block below is YOUR desk's exclusive data. Reason only from it.)"
+    )
+    return "\n".join(lines)
+
+
+# ==================================================================
+# New — composite Quant factor scoreboard
+# ==================================================================
+
+def _score_5(value: Optional[float], thresholds: tuple[float, float, float, float]) -> Optional[int]:
+    """Map a metric to a 1-5 factor score using ordered thresholds.
+    1 = weakest, 5 = strongest. Returns None if value missing."""
+    if value is None:
+        return None
+    t1, t2, t3, t4 = thresholds
+    if value < t1: return 1
+    if value < t2: return 2
+    if value < t3: return 3
+    if value < t4: return 4
+    return 5
+
+
+def _factor_label(score: Optional[int], is_zh: bool) -> str:
+    if score is None:
+        return "n/a"
+    labels_en = {1: "very weak", 2: "weak", 3: "average", 4: "strong", 5: "very strong"}
+    labels_zh = {1: "极弱", 2: "偏弱", 3: "中性", 4: "偏强", 5: "极强"}
+    table = labels_zh if is_zh else labels_en
+    return table.get(score, "n/a")
+
+
+def format_quant_block(technicals: dict, fundamental: dict, locale: str) -> str:
+    """Block for the Quant Analyst — composite factor scoreboard.
+
+    Builds five factor scores (each 1-5) from existing technical + fundamental data:
+      - Momentum: 90D return + RSI deviation from 50
+      - Value: P/E (lower = better)
+      - Quality: ROE (higher = better)
+      - Low-Vol: ATR/price (lower = better)
+      - Growth: revenue YoY (higher = better)
+    """
+    if not technicals and not fundamental:
+        return ""
+    is_zh = locale == "zh"
+    title = "### 因子评分卡（你的专属数据）" if is_zh else "### Factor Scoreboard (your specialty)"
+    lines = [title]
+
+    # Momentum — 90D return; tilt by RSI distance from 50
+    r90 = technicals.get("return_90d_pct")
+    r30 = technicals.get("return_30d_pct")
+    rsi = technicals.get("rsi14")
+    momentum_score = _score_5(r90, (-15, -5, 5, 15))
+    momentum_label = _factor_label(momentum_score, is_zh)
+    lines.append(
+        f"- {'动量' if is_zh else 'Momentum'}: {momentum_label}  "
+        f"(90D {r90:+.2f}%, 30D {r30:+.2f}%, RSI {rsi:.1f})"
+        if r90 is not None and r30 is not None and rsi is not None
+        else f"- {'动量' if is_zh else 'Momentum'}: {momentum_label}"
+    )
+
+    # Value — P/E lower = better. Inverted thresholds.
+    pe = fundamental.get("pe_ratio")
+    if pe is not None and pe > 0:
+        # Lower P/E ⇒ higher value score
+        if   pe < 10: value_score = 5
+        elif pe < 18: value_score = 4
+        elif pe < 25: value_score = 3
+        elif pe < 40: value_score = 2
+        else:         value_score = 1
+        lines.append(f"- {'价值' if is_zh else 'Value'}: {_factor_label(value_score, is_zh)}  (P/E {pe:.2f})")
+    else:
+        lines.append(f"- {'价值' if is_zh else 'Value'}: n/a")
+
+    # Quality — ROE
+    roe = fundamental.get("return_on_equity")
+    if roe is not None:
+        roe_pct = roe * 100
+        quality_score = _score_5(roe_pct, (0, 8, 15, 25))
+        lines.append(f"- {'质量' if is_zh else 'Quality'}: {_factor_label(quality_score, is_zh)}  (ROE {roe_pct:.2f}%)")
+    else:
+        lines.append(f"- {'质量' if is_zh else 'Quality'}: n/a")
+
+    # Low-Vol — ATR / price
+    atr = technicals.get("atr14")
+    last = technicals.get("last_close")
+    if atr is not None and last and last > 0:
+        atr_pct = atr / last * 100
+        # Lower ATR% = higher low-vol score
+        if   atr_pct < 1.5: lowvol_score = 5
+        elif atr_pct < 2.5: lowvol_score = 4
+        elif atr_pct < 4.0: lowvol_score = 3
+        elif atr_pct < 6.0: lowvol_score = 2
+        else:               lowvol_score = 1
+        lines.append(f"- {'低波动' if is_zh else 'Low-Vol'}: {_factor_label(lowvol_score, is_zh)}  (ATR {atr_pct:.2f}% of price)")
+
+    # Growth — revenue YoY
+    rev_growth = fundamental.get("revenue_growth_yoy")
+    if rev_growth is not None:
+        rg_pct = rev_growth * 100
+        growth_score = _score_5(rg_pct, (-5, 5, 15, 30))
+        lines.append(f"- {'成长' if is_zh else 'Growth'}: {_factor_label(growth_score, is_zh)}  (Rev YoY {rg_pct:+.2f}%)")
+    else:
+        lines.append(f"- {'成长' if is_zh else 'Growth'}: n/a")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# Renamed — Credit / Balance-Sheet block (was format_financial_block)
+# Kept as alias for backward compat.
+# ==================================================================
+
+def format_credit_block(fund: dict, locale: str) -> str:
+    """Block for Credit & Balance-Sheet Analyst — solvency + liquidity + FCF."""
+    if not fund:
+        return ""
+    is_zh = locale == "zh"
+    title = "### 信用与资产负债表（你的专属数据）" if is_zh else "### Credit & Balance-Sheet Block (your specialty)"
+    lines = [title]
+
+    debt_eq = fund.get("debt_to_equity")
+    cur_ratio = fund.get("current_ratio")
+    quick = fund.get("quick_ratio")
+    parts = []
+    if debt_eq is not None: parts.append(f"D/E {debt_eq:.2f}")
+    if cur_ratio is not None: parts.append(f"Current {cur_ratio:.2f}")
+    if quick is not None: parts.append(f"Quick {quick:.2f}")
+    if parts:
+        lines.append(f"- {'偿债能力' if is_zh else 'Solvency'}: {' | '.join(parts)}")
+
+    cash = fund.get("total_cash")
+    debt = fund.get("total_debt")
+    if cash is not None and debt is not None:
+        net = cash - debt
+        net_label = ("净现金" if is_zh else "net cash") if net > 0 else ("净负债" if is_zh else "net debt")
+        lines.append(f"- {'资产负债表' if is_zh else 'Balance sheet'}: Cash {_fmt_num(cash)} | Debt {_fmt_num(debt)} | {net_label} {_fmt_num(abs(net))}")
+
+    fcf = fund.get("free_cash_flow")
+    mc = fund.get("market_cap")
+    if fcf is not None and mc and mc > 0:
+        fcf_yield = fcf / mc * 100
+        lines.append(f"- FCF Yield: {fcf_yield:.2f}% (FCF {_fmt_num(fcf)} / Cap {_fmt_num(mc)})")
+
+    short_pct = fund.get("short_pct_float")
+    if short_pct is not None:
+        signal = ("空头拥挤" if is_zh else "crowded short") if short_pct > 0.10 else ("空头偏低" if is_zh else "low short")
+        lines.append(f"- {'空头占流通股' if is_zh else 'Short % float'}: {short_pct * 100:.2f}% ({signal})")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# New — Flow & Positioning fetcher + block
+# ==================================================================
+
+async def fetch_flow_context(fetcher: DataFetcher, ticker: str) -> dict:
+    """Fetch short interest + smart-money positioning data for the Flow analyst."""
+    short_task = fetcher.get_short_interest(ticker) if hasattr(fetcher, "get_short_interest") else None
+    smart_task = fetcher.get_smart_money(ticker) if hasattr(fetcher, "get_smart_money") else None
+    tasks = [t for t in (short_task, smart_task) if t is not None]
+    if not tasks:
+        return {}
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    out: dict = {}
+    idx = 0
+    if short_task is not None:
+        v = results[idx]
+        out["short_interest"] = v if not isinstance(v, Exception) else {}
+        idx += 1
+    if smart_task is not None:
+        v = results[idx]
+        out["smart_money"] = v if not isinstance(v, Exception) else {}
+    return out
+
+
+def format_flow_block(flow_ctx: dict, fundamental: dict, options_snapshot: dict, locale: str) -> str:
+    """Block for Flow & Positioning Analyst — short, institutional, insider, P/C."""
+    if not flow_ctx and not fundamental and not options_snapshot:
+        return ""
+    is_zh = locale == "zh"
+    title = "### 资金流与持仓数据（你的专属数据）" if is_zh else "### Flow & Positioning Data (your specialty)"
+    lines = [title]
+
+    short_data = (flow_ctx or {}).get("short_interest") or {}
+    short_pct = short_data.get("short_pct_float") or fundamental.get("short_pct_float")
+    short_ratio = short_data.get("short_ratio") or fundamental.get("short_ratio")
+    shares_short = short_data.get("shares_short") or fundamental.get("shares_short")
+    if short_pct is not None:
+        # Yahoo returns short_pct as a decimal (0.05 = 5%)
+        sp_pct = short_pct * 100 if short_pct < 1.5 else short_pct
+        signal = ("拥挤空头-潜在轧空" if is_zh else "crowded short - squeeze setup") if sp_pct > 10 else ("空头偏低" if is_zh else "low short conviction") if sp_pct < 3 else ("适度空头" if is_zh else "moderate short")
+        lines.append(f"- {'空头占流通股' if is_zh else 'Short % float'}: {sp_pct:.2f}% ({signal})")
+    if short_ratio is not None:
+        lines.append(f"- Days-to-Cover: {short_ratio:.2f}")
+    if shares_short is not None:
+        lines.append(f"- {'空头持仓' if is_zh else 'Shares short'}: {_fmt_num(shares_short)}")
+
+    smart = (flow_ctx or {}).get("smart_money") or {}
+    inst = smart.get("institutional_ownership") or {}
+    if inst:
+        inst_pct = inst.get("percent_held")
+        n_inst = inst.get("number_of_institutions")
+        if inst_pct is not None:
+            ip = inst_pct * 100 if inst_pct < 1.5 else inst_pct
+            lines.append(f"- {'机构持股' if is_zh else 'Institutional ownership'}: {ip:.2f}%" + (f" ({n_inst} {'家机构' if is_zh else 'institutions'})" if n_inst else ""))
+    insider_tx = smart.get("insider_transactions") or []
+    if insider_tx:
+        buys = sum(1 for t in insider_tx if (t.get("transaction") or "").lower().startswith("buy") or (t.get("transaction") or "").lower() == "purchase")
+        sells = sum(1 for t in insider_tx if (t.get("transaction") or "").lower().startswith("sell") or (t.get("transaction") or "").lower() == "sale")
+        lines.append(f"- {'近期内部人交易' if is_zh else 'Recent insider transactions'}: {buys} {'买入' if is_zh else 'buys'} / {sells} {'卖出' if is_zh else 'sells'}")
+    pc = smart.get("put_call_ratio")
+    if pc is not None:
+        signal = ("偏多" if is_zh else "bullish") if pc < 0.7 else ("偏空" if is_zh else "bearish") if pc > 1.2 else ("中性" if is_zh else "neutral")
+        lines.append(f"- Put/Call ratio: {pc:.2f} ({signal})")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# New — Risk Manager block
+# ==================================================================
+
+def _max_drawdown(closes: list[float]) -> Optional[float]:
+    """1-year max drawdown as a percentage."""
+    if len(closes) < 30:
+        return None
+    peak = closes[0]
+    max_dd = 0.0
+    for c in closes:
+        if c > peak:
+            peak = c
+        dd = (peak - c) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+    return max_dd
+
+
+def _realized_vol(closes: list[float], window: int = 30) -> Optional[float]:
+    """Annualized realized volatility from close-to-close log returns over window."""
+    if len(closes) < window + 1:
+        return None
+    sliced = closes[-(window + 1):]
+    rets: list[float] = []
+    for i in range(1, len(sliced)):
+        prev, cur = sliced[i - 1], sliced[i]
+        if prev > 0 and cur > 0:
+            rets.append(math.log(cur / prev))
+    if len(rets) < 2:
+        return None
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    return math.sqrt(var) * math.sqrt(252) * 100
+
+
+def format_risk_block(technicals: dict, fundamental: dict, ohlcv_bars: list[dict], locale: str) -> str:
+    """Block for Risk Manager — ATR, beta, drawdown, realized vol."""
+    if not technicals and not fundamental and not ohlcv_bars:
+        return ""
+    is_zh = locale == "zh"
+    title = "### 风险指标（你的专属数据）" if is_zh else "### Risk Metrics (your specialty)"
+    lines = [title]
+
+    atr = technicals.get("atr14")
+    last = technicals.get("last_close")
+    if atr is not None and last and last > 0:
+        atr_pct = atr / last * 100
+        grade = ("高波动" if is_zh else "high-vol") if atr_pct > 5 else ("低波动" if is_zh else "low-vol") if atr_pct < 2 else ("正常" if is_zh else "normal")
+        lines.append(f"- ATR(14): ${atr:.2f} ({atr_pct:.2f}% of price, {grade})")
+        # Suggested 1.5x and 2x ATR stops from current price
+        stop_15 = last - 1.5 * atr
+        stop_2 = last - 2.0 * atr
+        lines.append(f"- {'建议止损位' if is_zh else 'Suggested stops'}: 1.5×ATR ${stop_15:.2f} | 2×ATR ${stop_2:.2f}")
+
+    beta = fundamental.get("beta")
+    if beta is not None:
+        cor = ("系统性风险放大" if is_zh else "amplified systematic risk") if beta > 1.5 else ("防御型" if is_zh else "defensive") if beta < 0.7 else ("接近大盘" if is_zh else "in line with market")
+        lines.append(f"- Beta: {beta:.2f} ({cor})")
+
+    closes = [b.get("close") for b in ohlcv_bars if b.get("close") is not None]
+    if closes:
+        mdd = _max_drawdown(closes)
+        if mdd is not None:
+            lines.append(f"- {'1Y 最大回撤' if is_zh else '1Y max drawdown'}: -{mdd:.2f}%")
+        rv30 = _realized_vol(closes, 30)
+        if rv30 is not None:
+            lines.append(f"- {'30D 实现波动率' if is_zh else '30D realized vol'}: {rv30:.2f}% (annualised)")
+
+    r1y = technicals.get("return_1y_pct")
+    if r1y is not None:
+        lines.append(f"- 1Y {'回报' if is_zh else 'return'}: {r1y:+.2f}%")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# New — Volatility & Options block (extracts from market + snapshot + GEX)
+# ==================================================================
+
+def format_volatility_block(market: dict, options_snapshot: dict, gex: dict, hv: dict, locale: str) -> str:
+    """Block for Volatility & Options Strategist — IV regime + Greeks + GEX."""
+    if not market and not options_snapshot and not gex:
+        return ""
+    is_zh = locale == "zh"
+    title = "### 波动率与期权数据（你的专属数据）" if is_zh else "### Volatility & Options Data (your specialty)"
+    lines = [title]
+
+    iv = market.get("iv_current")
+    iv_rank = market.get("iv_rank")
+    iv_pct = market.get("iv_percentile")
+    hv_30 = (hv or {}).get("hv_30") or market.get("hv_30")
+    if iv is not None:
+        lines.append(f"- {'隐含波动率 (IV)' if is_zh else 'Implied Vol'}: {iv:.1f}%")
+    if iv_rank is not None:
+        regime = ("IV 偏贵" if is_zh else "IV rich") if iv_rank > 70 else ("IV 偏便宜" if is_zh else "IV cheap") if iv_rank < 30 else ("IV 中性" if is_zh else "IV mid-range")
+        iv_pct_str = f"{iv_pct:.0f}" if iv_pct is not None else "n/a"
+        lines.append(f"- IV Rank: {iv_rank:.0f} | IV Percentile: {iv_pct_str} ({regime})")
+    if iv is not None and hv_30 is not None and hv_30 > 0:
+        prem = (iv / hv_30 - 1) * 100
+        msg = ("IV 较 HV 偏贵" if is_zh else "IV richer than HV") if prem > 10 else ("IV 较 HV 偏便宜" if is_zh else "IV cheaper than HV") if prem < -10 else ("IV ≈ HV" if is_zh else "IV ≈ HV")
+        lines.append(f"- 30D HV: {hv_30:.1f}% (IV vs HV {prem:+.1f}%, {msg})")
+
+    snap = options_snapshot or {}
+    target_exp = snap.get("expiration") or snap.get("target_expiration")
+    if target_exp:
+        lines.append(f"- {'目标到期日' if is_zh else 'Target expiration'}: {target_exp}")
+    atm_call = snap.get("atm_call") or {}
+    atm_put = snap.get("atm_put") or {}
+    if atm_call:
+        d = atm_call.get("delta"); g = atm_call.get("gamma"); th = atm_call.get("theta"); v = atm_call.get("vega")
+        parts = []
+        if d is not None: parts.append(f"Δ={d:+.3f}")
+        if g is not None: parts.append(f"Γ={g:+.4f}")
+        if th is not None: parts.append(f"Θ={th:+.3f}")
+        if v is not None: parts.append(f"ν={v:+.3f}")
+        if parts:
+            lines.append(f"- ATM Call Greeks: {', '.join(parts)}")
+    if atm_put:
+        d = atm_put.get("delta"); g = atm_put.get("gamma"); th = atm_put.get("theta"); v = atm_put.get("vega")
+        parts = []
+        if d is not None: parts.append(f"Δ={d:+.3f}")
+        if g is not None: parts.append(f"Γ={g:+.4f}")
+        if th is not None: parts.append(f"Θ={th:+.3f}")
+        if v is not None: parts.append(f"ν={v:+.3f}")
+        if parts:
+            lines.append(f"- ATM Put Greeks: {', '.join(parts)}")
+
+    if gex:
+        net = gex.get("net_gex_millions")
+        flip = gex.get("gamma_flip_strike")
+        if net is not None:
+            regime = ("正 GEX, 压缩波动" if is_zh else "positive GEX, vol-compressing") if net >= 0 else ("负 GEX, 放大波动" if is_zh else "negative GEX, vol-amplifying")
+            lines.append(f"- Net GEX: ${net:.2f}M per 1% move ({regime})")
+        if flip is not None:
+            lines.append(f"- Gamma Flip Strike: ${flip:.2f}")
+
+    return "\n".join(lines)
+
+
+# ==================================================================
+# New — Event-Driven block (news + earnings + analyst targets)
+# ==================================================================
+
+def format_event_block(news: list[dict], market: dict, analyst_data: dict, locale: str) -> str:
+    """Block for Event-Driven Analyst — recent news + earnings + analyst consensus."""
+    if not news and not analyst_data and not (market or {}).get("next_earnings_date"):
+        return ""
+    is_zh = locale == "zh"
+    title = "### 事件与新闻数据（你的专属数据）" if is_zh else "### Catalysts & News Data (your specialty)"
+    lines = [title]
+
+    earnings = market.get("next_earnings_date")
+    if earnings:
+        lines.append(f"- {'下次财报日期' if is_zh else 'Next earnings'}: {earnings}")
+
+    a = analyst_data or {}
+    if a.get("target_mean") is not None:
+        target = a["target_mean"]
+        spot = market.get("spot_price")
+        upside = ((target - spot) / spot * 100) if spot and spot > 0 else None
+        upside_str = f", {'隐含涨幅' if is_zh else 'implied'} {upside:+.2f}%" if upside is not None else ""
+        rec = a.get("recommendation") or ""
+        n = a.get("num_analysts") or 0
+        lines.append(f"- {'分析师共识' if is_zh else 'Analyst consensus'}: ${target:.2f}{upside_str} | {rec} ({n} {'位' if is_zh else 'analysts'})")
+
+    items = (news or [])[:6]
+    if items:
+        lines.append(f"- {'近期头条 (前 6 条)' if is_zh else 'Recent headlines (top 6)'}:")
+        for item in items:
+            title_text = (item.get("title") or "").strip()
+            date_text = (item.get("date") or "").strip()
+            if title_text:
+                lines.append(f"  - [{date_text}] {title_text[:140]}")
 
     return "\n".join(lines)

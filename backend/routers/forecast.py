@@ -44,6 +44,130 @@ class MarketIntelRequest(BaseModel):
     locale: str = Field(default="zh", description="语言: zh 或 en")
 
 
+# ============================================================
+# 新闻 (paginated + relevance-filtered)
+# ============================================================
+
+class NewsRequest(BaseModel):
+    locale: str = Field(default="en", description="zh or en")
+    offset: int = Field(default=0, ge=0, description="page offset (skip N items)")
+    limit: int = Field(default=10, ge=1, le=30, description="page size")
+    relevance_filter: bool = Field(
+        default=True,
+        description="Use LLM to drop unrelated headlines after a keyword pre-filter",
+    )
+
+
+# Keyword list for cheap pre-filtering — drops noise that obviously isn't
+# about this ticker before we spend any LLM budget.
+_NOISE_KEYWORDS = (
+    "horoscope", "lottery", "recipe", "celebrity", "tiktok", "reality tv",
+)
+
+
+def _keyword_filter(items: list[dict], ticker: str) -> list[dict]:
+    """Cheap pre-filter — drop headlines that hit clearly off-topic keywords."""
+    out: list[dict] = []
+    for item in items:
+        text = ((item.get("title") or "") + " " + (item.get("summary") or "")).lower()
+        if any(noise in text for noise in _NOISE_KEYWORDS):
+            continue
+        out.append(item)
+    return out
+
+
+async def _llm_relevance_filter(items: list[dict], ticker: str, locale: str) -> list[dict]:
+    """Use the LLM to score each headline 0-3 for relevance to the ticker.
+    Drops items scoring 0. Cheap because we only send the title list."""
+    if not items:
+        return items
+    import json as _json
+    titles = [{"i": i, "t": (it.get("title") or "")[:200]} for i, it in enumerate(items)]
+    prompt = (
+        f"You are a financial news editor. For each headline below, rate its "
+        f"relevance to the company / ticker {ticker} on a 0-3 scale:\n"
+        f"  0 = unrelated (drop), 1 = tangential, 2 = related, 3 = directly about it.\n"
+        f"Return ONLY a JSON array like [{{\"i\": 0, \"r\": 3}}, ...]\n\n"
+        f"Headlines:\n{_json.dumps(titles, ensure_ascii=False)}"
+    )
+    try:
+        resp = await client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "You are a precise news classifier. Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            max_tokens=1200,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+        # Allow either bare array or object with array
+        if "[" in content and "]" in content:
+            content = content[content.find("["): content.rfind("]") + 1]
+        scored = _json.loads(content)
+        scores: dict[int, int] = {}
+        for entry in scored:
+            try:
+                scores[int(entry["i"])] = int(entry.get("r", 0))
+            except Exception:
+                continue
+        # Keep items scoring >= 1 (tangential or better). Sort by relevance desc.
+        kept = [(scores.get(i, 1), it) for i, it in enumerate(items)]
+        kept = [it for r, it in sorted(kept, key=lambda x: -x[0]) if r >= 1]
+        return kept
+    except Exception:
+        # If filtering fails, fall back to unfiltered list — never block the user
+        return items
+
+
+@router.post("/news/{ticker}")
+async def get_paginated_news(ticker: str, req: NewsRequest = None):
+    """Paginated news endpoint — supports `offset` + `limit` for "Load more"
+    and an optional LLM relevance filter to drop unrelated headlines.
+
+    Strategy:
+      1. Always fetch a generous pool (100 items) from upstream.
+      2. Cheap keyword pre-filter to drop obvious noise.
+      3. Optional LLM relevance scoring (only when relevance_filter=True
+         AND offset==0 — the first page is the one the user actually sees;
+         later pages are append-only so we don't re-filter to keep latency low).
+      4. Apply offset / limit.
+    """
+    if req is None:
+        req = NewsRequest()
+    ticker = _ensure_us_ticker(ticker)
+
+    # Generous pool — 100 items covers ~30 days for most tickers
+    try:
+        raw = await _fetcher.get_news(ticker, limit=100)
+    except Exception:
+        raw = []
+    if not raw:
+        return {"ticker": ticker, "items": [], "total": 0, "has_more": False}
+
+    # Cheap pre-filter (always on — practically free)
+    filtered = _keyword_filter(raw, ticker)
+
+    # Expensive LLM filter — only on first page when explicitly requested
+    if req.relevance_filter and req.offset == 0:
+        filtered = await _llm_relevance_filter(filtered, ticker, req.locale)
+
+    total = len(filtered)
+    page = filtered[req.offset : req.offset + req.limit]
+
+    return {
+        "ticker": ticker,
+        "items": page,
+        "total": total,
+        "has_more": (req.offset + req.limit) < total,
+        "next_offset": req.offset + req.limit if (req.offset + req.limit) < total else None,
+    }
+
+
 @router.post("/market-intel/{ticker}")
 async def get_market_intel(ticker: str, req: MarketIntelRequest = None):
     """
@@ -72,7 +196,7 @@ async def get_market_intel(ticker: str, req: MarketIntelRequest = None):
                 for n in cn_news_items
             ]
         else:
-            raw_news = await _fetcher.get_news(ticker, limit=50)
+            raw_news = await _fetcher.get_news(ticker, limit=100)
     except Exception:
         raw_news = []
 
