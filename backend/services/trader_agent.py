@@ -29,14 +29,31 @@ from typing import AsyncGenerator, Literal, Optional
 
 _logger = logging.getLogger(__name__)
 
+# Version tag — bumped whenever the pipeline contract changes. Printed at
+# startup AND streamed in the first SSE event so the frontend can verify
+# it's talking to a v3.x backend.
+PIPELINE_VERSION = "v3.2"
+
 
 def _safe_log(message: str) -> None:
-    """Best-effort warning log; falls back silently on logging errors so the
-    pipeline never crashes because of an observability call."""
+    """Best-effort warning log + console mirror so users running with the
+    default Python config can SEE failures in their terminal.
+    Falls back silently on logging errors."""
     try:
         _logger.warning(message)
     except Exception:
         pass
+    # Mirror to stdout — uvicorn logs propagate to stderr by default but a
+    # raw print is the surest way the user sees diagnostics in their console.
+    try:
+        print(f"{message}", flush=True)
+    except Exception:
+        pass
+
+
+# Banner printed once per process import so the user can verify which
+# version is actually loaded after a restart.
+print(f"[trader_agent] Loaded pipeline {PIPELINE_VERSION} — concurrency cap=4, max_retries=5", flush=True)
 
 from backend.services.data_fetcher import DataFetcher
 from backend.services.researcher_context import (
@@ -1373,7 +1390,8 @@ class TraderAgentPipeline:
                 active_ids = valid_ids
 
             # 1. Gather context
-            yield self._sse({"type": "phase", "phase": "gathering_data"})
+            yield self._sse({"type": "phase", "phase": "gathering_data", "pipeline_version": PIPELINE_VERSION})
+            print(f"[trader_agent] Run start: ticker={ticker} mode={mode} locale={locale} active={len(active_ids)} version={PIPELINE_VERSION}", flush=True)
             ctx = await gather_research_context(ticker, self.fetcher)
 
             # Tell the frontend exactly which researchers will fire so progress bars
@@ -1420,6 +1438,7 @@ class TraderAgentPipeline:
 
             tasks = [safe_call(key) for key in active_ids]
             researcher_results: list[dict] = []
+            seen_ids: set[str] = set()
             for coro in asyncio.as_completed(tasks):
                 try:
                     result = await coro
@@ -1428,7 +1447,42 @@ class TraderAgentPipeline:
                     _safe_log(f"[trader_agent] safe_call escaped exception: {e}")
                     continue
                 researcher_results.append(result)
+                seen_ids.add(result["id"])
+                _safe_log(
+                    f"[trader_agent] researcher {len(researcher_results)}/{len(active_ids)} -> "
+                    f"{result['id']} ({result.get('stance', '?')})"
+                )
                 yield self._sse({"type": "researcher", "result": result})
+
+            # FINAL SAFETY NET: emit a fallback event for any analyst that
+            # somehow didn't produce a result. This guarantees the frontend
+            # always receives exactly len(active_ids) researcher events.
+            for missing_id in active_ids:
+                if missing_id in seen_ids:
+                    continue
+                spec = RESEARCHER_SPECS[missing_id]
+                name = spec["name_zh"] if locale == "zh" else spec["name_en"]
+                fallback = {
+                    "id": missing_id,
+                    "name_en": spec["name_en"],
+                    "name_zh": spec["name_zh"],
+                    "icon": spec["icon"],
+                    "color": spec["color"],
+                    "stance": "neutral",
+                    "confidence": 5,
+                    "headline": (
+                        f"[{name}] {'analysis unavailable' if locale != 'zh' else '本轮未生成有效分析'}"
+                    ),
+                    "key_points": [
+                        "Analyst skipped (task never completed)" if locale != "zh"
+                        else "该席位本轮未完成"
+                    ],
+                    "evidence": "",
+                    "risks": "",
+                }
+                researcher_results.append(fallback)
+                _safe_log(f"[trader_agent] safety-net fallback for {missing_id}")
+                yield self._sse({"type": "researcher", "result": fallback})
 
             # Restore canonical order so the frontend renders consistently
             order = list(RESEARCHER_SPECS.keys())
