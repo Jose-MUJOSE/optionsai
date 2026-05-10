@@ -18,11 +18,11 @@
 <br/>
 
 **A multi-agent AI options strategy platform for retail investors.**  
-9 specialist researchers · Full-team cross-examination debate · 10 LLM providers · Portfolio Greeks · Scientific backtesting · Real US-market data · Bilingual UI
+10 specialist analysts · Full-team cross-examination debate · 10 LLM providers · Portfolio Greeks · Scientific backtesting · Real US-market data · Bilingual UI
 
 <br/>
 
-[**🚀 Quick Start**](#-quick-start) · [**🤖 Trader Agent**](#-professional-trader-agent-v2-marquee-feature) · [**✨ Features**](#-features) · [**🏗 Architecture**](#-architecture) · [**📡 API**](#-api-reference)
+[**🚀 Quick Start**](#-quick-start) · [**🤖 Trader Agent**](#-professional-trader-agent-v37--marquee-feature) · [**✨ Features**](#-features) · [**🏗 Architecture**](#-architecture) · [**📡 API**](#-api-reference)
 
 </div>
 
@@ -33,7 +33,7 @@
 OptionsAI is a full-stack web platform that bridges the gap between raw options data and actionable decisions for **beginner retail investors** in the **US market**. Instead of staring at a wall of Greeks and IV numbers, users get:
 
 - A **company identity card** — logo, sector, 18 valuation/profitability metrics, and a plain-language business summary — the moment they search any stock
-- A step-by-step AI analysis from **9 specialist researchers** plus a **Portfolio Manager** that explains *why* a particular strategy makes sense, *what* the max loss is, and *where* the break-even point sits
+- A step-by-step AI analysis from **10 specialist analysts** plus a **Portfolio Manager** that explains *why* a particular strategy makes sense, *what* the max loss is, and *where* the break-even point sits
 - A **scientific backtest** with Sharpe ratio, Sortino, Max Drawdown, and transaction-cost-adjusted P&L — not just "the strategy made money"
 - A **Portfolio Greeks dashboard** showing real-time Δ/Γ/Θ/ν across all paper positions, with 8 scenario shocks (±5%, ±10%, ±1σ IV, etc.)
 
@@ -59,38 +59,39 @@ All data is sourced from Yahoo Finance `quoteSummary` in a single parallel reque
 
 ---
 
-## 🤖 Professional Trader Agent (v3 — Marquee Feature)
+## 🤖 Professional Trader Agent (v3.7 — Marquee Feature)
 
 <img src="docs/images/trader-agent.svg" alt="Trader Agent" width="100%"/>
 
 <br/>
 
-The Trader Agent runs a **9-researcher parallel analysis**, then a **full-team cross-examination debate**, and finally a **Portfolio Manager** who synthesizes a decision that explicitly names which researcher's argument was decisive. No PM rubber-stamping — every claim has been challenged.
+The Trader Agent runs a **10-analyst parallel analysis**, then a **full-team cross-examination debate**, and finally a **Portfolio Manager** who synthesizes a decision that explicitly names which analyst's argument was decisive. No PM rubber-stamping — every claim has been challenged. Each analyst is hard-locked to their own domain data block — no shared base context — forcing genuinely independent reasoning.
 
-### The 9 Researchers (Institutional-Grade)
+### The 10 Analysts (Institutional-Grade)
 
-| # | Researcher | Analytical Lens |
-|---|----------|-----------------|
-| 1 | 📈 **Bull** | Strongest possible case for buying — catalysts, margin expansion, market share, valuation re-rating |
-| 2 | 📉 **Bear** | Strongest possible case against — competitive pressure, margin compression, regulatory risk |
-| 3 | 📊 **Technical** | Trend direction, MA stack, support/resistance, momentum, volume confirmation |
-| 4 | 💼 **Fundamental** | Revenue growth, profitability, valuation vs peers, balance-sheet strength, FCF |
-| 5 | 🌐 **Chief Macro Strategist** | 4-lens deep macro: ① broad-market index regime, ② interest-rate environment (yield curve, Fed path), ③ FX dynamics (DXY, sector FX exposure), ④ implied volatility regime (VIX, cross-asset vol) |
-| 6 | 🏭 **Sector Coverage Lead** | 5-lens industry deep-dive: ① industry lifecycle stage, ② competitive dynamics (Porter's Five Forces, market structure), ③ relative-strength vs sector peers, ④ technological disruption risk, ⑤ regulatory & policy headwinds/tailwinds |
-| 7 | 🧮 **Financial** | Earnings quality, ROIC, debt levels, working-capital efficiency, accounting red flags |
-| 8 | 📰 **News & Events** | Recent headlines, earnings, product launches, insider transactions, 30-day catalyst calendar |
-| 9 | 🎯 **Options** | IV regime, IV Rank/Percentile, ATM Greeks, GEX dealer positioning, term structure |
+| # | Analyst | Analytical Lens |
+|---|---------|-----------------|
+| 1 | 🧪 **Quantitative** | Factor scoreboard (momentum, value, quality, low-vol, growth) — factor tilt, statistical regime, multi-sigma extremes |
+| 2 | 📊 **Technical Trader** | Trend direction, MA stack, support/resistance, RSI/MACD momentum, volume confirmation — 1–4 week horizon |
+| 3 | 💼 **Fundamental** | Valuation multiples (P/E, P/B, PEG), profitability trends, capital efficiency (ROE/ROA), FCF generation |
+| 4 | 🏦 **Credit & Balance-Sheet** | D/E leverage grade, liquidity (current/quick ratio), cash-vs-debt coverage, internal credit rating A–F |
+| 5 | 🌐 **Macro Strategist** | 4-lens macro: ① index regime (SPY/QQQ), ② rates (US 10Y/TLT), ③ FX (DXY), ④ volatility regime (VIX) |
+| 6 | 🏭 **Sector Coverage Lead** | 5-lens industry: ① lifecycle stage, ② Porter's Five Forces, ③ relative strength vs sector ETF, ④ disruption risk, ⑤ regulatory backdrop |
+| 7 | 🎯 **Volatility & Options** | IV regime (IV Rank/Percentile vs HV), dealer GEX positioning, gamma flip strike, strategy-selection hint (buy/sell vol) |
+| 8 | 📰 **Event-Driven** | Nearest catalyst (earnings, FDA, contract), headline sentiment, analyst target consensus, catalyst crowding |
+| 9 | 💸 **Flow & Positioning** | Short interest / days-to-cover, institutional 13F flow, insider open-market transactions, P/C ratio |
+| 10 | 🛡️ **Risk Manager** | ATR volatility grade, 1Y drawdown profile, beta/correlation risk, explicit stop-loss level in dollars |
 
-> **Differentiation guarantee:** Each researcher is forced to draw evidence exclusively from their own data block. The macro analyst cannot borrow from the news researcher's evidence; the industry researcher cannot reuse the fundamentals researcher's numbers. This prevents the "all-similar-evidence" problem common in weaker multi-agent systems.
+> **Differentiation guarantee:** Each analyst is forced to draw evidence exclusively from their own data block. The Macro Strategist cannot borrow the Event analyst's news; the Credit analyst cannot reuse the Fundamental analyst's earnings numbers. This eliminates the "all-similar-evidence" problem common in weaker multi-agent systems.
 
-### Full-Team Cross-Examination Debate (v3)
+### Full-Team Cross-Examination Debate (v3.7)
 
-Every researcher debates — not just Bull vs. Bear. The dynamic pairing algorithm:
-1. For each researcher, finds the highest-confidence opponent **from the opposing stance**
-2. Falls back to any opposing-stance researcher if no same-confidence match
-3. Falls back to any different researcher if stances are identical (neutral vs. neutral)
+Every analyst debates — no analyst is exempt. The dynamic pairing algorithm:
+1. For each analyst, finds the highest-confidence opponent **from the opposing stance**
+2. Falls back to any opposing-stance analyst if no same-confidence match
+3. Falls back to any different analyst if stances are identical (neutral vs. neutral)
 
-This means the **Macro Strategist** can challenge the **Fundamental** researcher's interest-rate assumptions, and the **Sector Lead** can rebut the **Bull**'s TAM claims. All 9 viewpoints are stress-tested before the PM weighs in.
+This means the **Macro Strategist** can challenge the **Fundamental** analyst's rate assumptions, and the **Volatility** desk can rebut the **Technical** analyst's trend call. All 10 viewpoints are stress-tested before the PM weighs in.
 
 Each rebuttal card shows:
 - 🗣 The original researcher's key claim
@@ -98,19 +99,19 @@ Each rebuttal card shows:
 - 🔖 Which researcher is being rebutted (`→ rebutting [analyst_name]`)
 - 🏆 PM judgment on the full cross-examination
 
-### Researcher Selector
+### Analyst Selector
 
-Run only the researchers you care about. Toggle individual researchers on/off before launching analysis — a single researcher can complete in ~15 seconds vs. ~60 seconds for all 9. Useful when you want a quick Technical + Options read without waiting for every researcher.
+Run only the analysts you care about. Toggle individual analysts on/off before launching — a single analyst completes in ~15 seconds vs. ~90 seconds for all 10. Useful when you want a quick Technical + Volatility read without waiting for every desk.
 
 ### What the Portfolio Manager produces
 
 - **Decision badge** — `BUY` / `SELL` / `HOLD` or strategy name, plus conviction `1-10`
-- **Consensus score** — *"6 of 9 bullish, 2 bearish, 1 neutral"*
+- **Consensus score** — *"7 of 10 bullish, 2 bearish, 1 neutral"*
 - **Investment thesis** — 5-7 sentences with the full reasoning chain
 - **Stock mode** — entry zone, target, stop loss, time horizon, position sizing
 - **Options mode** — direction, exact structure (legs + premiums), expiration, max loss/profit, breakeven, win probability
 - **Key catalysts + main risks** — 3 of each
-- **Per-researcher synthesis** — how each of the 9 voices influenced the call
+- **Per-analyst synthesis** — how each of the 10 voices influenced the call
 - **Actionable steps** — 3+ concrete next actions
 - **Debate summary** — which side had the stronger bull/bear argument
 
@@ -119,7 +120,7 @@ Run only the researchers you care about. Toggle individual researchers on/off be
 - **Background-safe streaming** — switching views mid-analysis does not cancel the SSE stream
 - **Auto-save to localStorage** — every completed analysis persisted (up to 30 entries) with timestamp + ticker + decision badge
 - **History panel** — view, re-load, or delete past analyses
-- **Word .docx download** — export the full report (manager + all 9 briefings + synthesis + steps) with **professional typesetting** — branded headings, color-coded stance badges, shaded decision table, numbered action steps
+- **Word .docx download** — export the full report (manager + all 10 analyst briefings + synthesis + steps) with **professional typesetting** — branded headings, color-coded stance badges, shaded decision table, numbered action steps
 
 ---
 
@@ -301,7 +302,7 @@ Every strategy can be backtested against the past 1–2 years of real price hist
 flowchart LR
     U["User"] --> FE["Next.js 16\nReact 19 / Zustand"]
     FE -- "HTTP / SSE" --> API["FastAPI\nPython 3.12"]
-    API --> TA["Trader Agent\n9 Researchers + PM + Debate"]
+    API --> TA["Trader Agent v3.7\n10 Analysts + PM + Debate"]
     API --> ORC["Multi-Agent\nChat Pipeline"]
     API --> SE["Strategy Engine\nBSM + Backtest"]
     API --> CP["Company Profile\nAggregator"]
@@ -387,7 +388,7 @@ cd frontend && npm run dev
 Open **[http://localhost:3000](http://localhost:3000)**, search a US ticker like `AAPL`, then:
 
 1. **Dashboard** — company profile card → candlestick → IV term structure → options chain → GEX
-2. **Trader Agent** — pick *Stock* or *Options* mode, select which researchers to run, hit **Run Analysis**, watch the Bull/Bear debate unfold
+2. **Trader Agent** — pick *Stock* or *Options* mode, select which analysts to run, hit **Run Analysis**, watch the cross-examination debate unfold
 3. **Strategies** — ranked strategy recommendations + interactive payoff What-If + scientific backtest metrics
 4. **Scanner** — pick a category (Mag7, Semiconductors, ETFs…) and a preset (high IV rank, bullish flow, earnings week)
 5. **Paper Portfolio** — track positions and see live Portfolio Greeks with scenario shocks
@@ -414,7 +415,7 @@ All providers use the **OpenAI-compatible `/v1/chat/completions`** protocol — 
 |----------|-------|-------------|
 | **DeepSeek** | `deepseek-chat` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | **OpenAI** | `gpt-4o` | [platform.openai.com](https://platform.openai.com/api-keys) |
-| **Anthropic (Claude)** | `claude-sonnet-4-5` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| **Anthropic (Claude)** | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 | **Google Gemini** | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
 | **Kimi (Moonshot)** | `moonshot-v1-32k` | [platform.moonshot.cn](https://platform.moonshot.cn/console/api-keys) |
 | **Qwen (Alibaba)** | `qwen-plus` | [bailian.console.aliyun.com](https://bailian.console.aliyun.com/) |
@@ -462,9 +463,9 @@ All endpoints are prefixed with `/api`. Interactive Swagger docs: **[http://loca
 | Method | Endpoint | Description |
 |:------:|----------|-------------|
 | `POST` | `/api/chat/stream` | Multi-agent AI chat **(SSE)** |
-| `POST` | `/api/trader/analyze/{ticker}` | ★ Trader Agent v2 — 9 researchers + debate + PM **(SSE)** |
+| `POST` | `/api/trader/analyze/{ticker}` | ★ Trader Agent v3.7 — 10 analysts + debate + PM **(SSE)** |
 | `POST` | `/api/trader/report` | Download Word .docx of a completed analysis |
-| `GET`  | `/api/trader/researchers` | List the 9 researcher metadata (icons, colors, names) |
+| `GET`  | `/api/trader/researchers` | List the 10 analyst metadata (icons, colors, names) |
 
 ---
 
@@ -487,7 +488,7 @@ optionsai/
 │       ├── data_fetcher.py         # Yahoo Finance + Polygon.io async client
 │       ├── ai_assistant.py         # LLM integration + vision support
 │       ├── agent_orchestrator.py   # 3-stage Multi-Agent chat pipeline
-│       ├── trader_agent.py         # ★ 9 researchers + PM + debate phase
+│       ├── trader_agent.py         # ★ 10 analysts + PM + debate phase (v3.7-burst3)
 │       ├── company_profile.py      # ★ Yahoo quoteSummary aggregator (18 metrics)
 │       ├── portfolio_greeks.py     # ★ BSM Greeks + scenario P&L shocks
 │       ├── researcher_context.py   # ★ Per-researcher data (MA/RSI/MACD/sector/news)
@@ -500,7 +501,7 @@ optionsai/
 │       ├── app/page.tsx            # Main page layout
 │       ├── components/
 │       │   ├── CompanyProfile.tsx  # ★ Company identity card (logo, metrics, summary)
-│       │   ├── TraderAgent.tsx     # ★ 9-researcher grid + debate + PM + history
+│       │   ├── TraderAgent.tsx     # ★ 10-analyst grid + debate + PM + history
 │       │   ├── PortfolioGreeks.tsx # ★ Δ/Γ/Θ/ν tiles + 8 scenario shocks
 │       │   ├── StrategyBacktest.tsx# ★ Sharpe/Sortino/MDD metrics panel
 │       │   ├── PayoffChart.tsx     # ★ Interactive What-If payoff chart
@@ -547,13 +548,17 @@ All data is fetched from real public sources. No mock data or fabricated numbers
 - [x] Candlestick chart with MA overlays and trend-line drawing
 - [x] Full options chain — Greeks view + Probability view + beginner tooltips
 - [x] Multi-agent AI Chat pipeline — Researcher → Analyst → Verifier
-- [x] **Trader Agent v3 — 9 institutional-grade researchers + Portfolio Manager**
+- [x] **Trader Agent v3.7 — 10 institutional-grade analysts + Portfolio Manager** (pipeline `v3.7-burst3`)
+- [x] **Quantitative Analyst** — factor scoreboard (momentum/value/quality/low-vol/growth), statistical regime
+- [x] **Credit & Balance-Sheet Analyst** — D/E leverage, liquidity ratios, internal credit grade A–F
+- [x] **Flow & Positioning Analyst** — short interest, 13F institutional flow, insider transactions, P/C ratio
+- [x] **Risk Manager** — ATR volatility grade, drawdown profile, beta exposure, explicit stop-loss in dollars
 - [x] **Chief Macro Strategist** — 4-lens macro analysis (index regime, rates, FX, vol)
 - [x] **Sector Coverage Lead** — 5-lens industry analysis (lifecycle, Porter's Five Forces, relative strength, disruption, regulation)
-- [x] **Full-team cross-examination debate** — all 9 researchers debate, dynamic pairing by opposing stance
-- [x] **Anti-similarity enforcement** — each researcher locked to own evidence block, no shared evidence
-- [x] **Researcher selector** — run any subset of the 9 to save LLM cost
-- [x] **Per-researcher synthesis + actionable steps + consensus score**
+- [x] **Full-team cross-examination debate** — all 10 analysts debate, dynamic pairing by opposing stance
+- [x] **Anti-similarity enforcement** — each analyst locked to own domain data block, no shared evidence
+- [x] **Analyst selector** — run any subset of the 10 to save LLM cost
+- [x] **Per-analyst synthesis + actionable steps + consensus score**
 - [x] **Background-safe analysis (Zustand store)** — survives view switches
 - [x] **Saved analysis history** — auto-persisted to localStorage
 - [x] **Professional Word .docx report** — branded headings, stance badges, shaded K-V table, numbered steps

@@ -97,8 +97,8 @@
   <rect x="82" y="185" width="130" height="28" rx="14" fill="#1e3a5f"/>
   <text x="147" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#60a5fa" text-anchor="middle">📊 Real Data</text>
 
-  <rect x="224" y="185" width="145" height="28" rx="14" fill="#1a3a2e"/>
-  <text x="296" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#34d399" text-anchor="middle">🤖 Multi-Agent AI</text>
+  <rect x="224" y="185" width="155" height="28" rx="14" fill="#1a3a2e"/>
+  <text x="301" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#34d399" text-anchor="middle">🤖 10 Analyst Debate</text>
 
   <rect x="381" y="185" width="145" height="28" rx="14" fill="#2d1b4e"/>
   <text x="453" y="204" font-family="'Segoe UI', sans-serif" font-size="13" fill="#a78bfa" text-anchor="middle">⚡ FastAPI + Next.js</text>

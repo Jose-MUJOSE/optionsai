@@ -1,179 +1,237 @@
-<svg width="900" height="540" viewBox="0 0 900 540" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="900" height="580" viewBox="0 0 900 580" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="tab" x1="0" y1="0" x2="900" y2="540" gradientUnits="userSpaceOnUse">
+    <linearGradient id="tabg" x1="0" y1="0" x2="900" y2="580" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#0a0e1a"/>
+      <stop offset="100%" stop-color="#070c18"/>
     </linearGradient>
-    <linearGradient id="ph_violet" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#8b5cf6"/>
-      <stop offset="100%" stop-color="#6366f1"/>
+    <linearGradient id="pm_grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4c1d95"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
     </linearGradient>
-    <linearGradient id="ph_emerald" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="dec_grad" x1="0" y1="0" x2="900" y2="0" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#10b981"/>
       <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
-    <linearGradient id="ph_red" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ef4444"/>
-      <stop offset="100%" stop-color="#f43f5e"/>
-    </linearGradient>
-    <linearGradient id="ph_teal" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#14b8a6"/>
+    <linearGradient id="buy_btn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
       <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
-    <marker id="arr" markerWidth="6" markerHeight="6" refX="5.5" refY="3" orient="auto">
-      <polygon points="0 0, 6 3, 0 6" fill="#7c3aed"/>
-    </marker>
+    <filter id="glow2">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
 
-  <rect width="900" height="540" fill="url(#tab)" rx="16"/>
-  <rect width="900" height="540" fill="none" stroke="#1e293b" stroke-width="1.5" rx="16"/>
+  <!-- Background -->
+  <rect width="900" height="580" fill="url(#tabg)" rx="16"/>
+  <rect width="900" height="580" fill="none" stroke="#1e293b" stroke-width="1.5" rx="16"/>
 
-  <!-- Title -->
-  <text x="450" y="38" font-family="'Segoe UI', sans-serif" font-size="18" font-weight="600" fill="#94a3b8" text-anchor="middle">
-    Professional Trader Agent — 9 Researchers + Portfolio Manager
+  <!-- Title bar -->
+  <text x="450" y="36" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#e2e8f0" text-anchor="middle">
+    Professional Trader Agent v3.7
   </text>
-  <line x1="100" y1="52" x2="800" y2="52" stroke="#1e293b" stroke-width="1"/>
+  <text x="450" y="54" font-family="'Segoe UI', sans-serif" font-size="11" fill="#64748b" text-anchor="middle">
+    10 Domain-Locked Analysts · Cross-Examination Debate · Portfolio Manager Synthesis
+  </text>
+  <line x1="30" y1="64" x2="870" y2="64" stroke="#1e293b" stroke-width="1"/>
 
-  <!-- 9 researcher cards in 3x3 grid -->
-  <!-- Row 1 -->
-  <g transform="translate(40, 80)">
-    <rect width="245" height="92" rx="10" fill="#0d1f14" stroke="#10b981" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="22">📈</text>
-    <text x="42" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#34d399">Bull Researcher</text>
-    <rect x="160" y="9" width="55" height="14" rx="7" fill="#10b981" opacity="0.2"/>
-    <text x="187" y="20" font-family="sans-serif" font-size="9" font-weight="700" fill="#34d399" text-anchor="middle">BULLISH 9/10</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#86efac">Analyst consensus 43% upside</text>
-    <text x="14" y="56" font-family="'Segoe UI', sans-serif" font-size="10" fill="#86efac">High insider ownership signals</text>
-    <text x="14" y="70" font-family="'Segoe UI', sans-serif" font-size="10" fill="#86efac">IV pricing major upside event</text>
-    <!-- conviction dots -->
-    <g transform="translate(14, 80)">
-      <rect x="0" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="5" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="10" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="15" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="20" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="25" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="30" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="35" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="40" y="0" width="3" height="6" rx="1" fill="#10b981"/>
-      <rect x="45" y="0" width="3" height="6" rx="1" fill="#1e293b"/>
-    </g>
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- ROW 1 : Quant | Technical | Fundamental | Credit | Macro -->
+  <!-- card width=160, gap=12, margin=26 -->
+  <!-- x positions: 26, 198, 370, 542, 714 -->
+
+  <!-- Quant -->
+  <g transform="translate(26,74)">
+    <rect width="160" height="82" rx="9" fill="#120a2a" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🧪</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#a78bfa">Quantitative</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#7c3aed" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#c4b5fd" text-anchor="middle">7/10</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">Momentum factor: +2.1σ</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">Quality top-decile ROIC</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">RSI: trend-continuation</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#7c3aed" opacity="0.3"/>
+    <rect x="12" y="75" width="49" height="4" rx="2" fill="#7c3aed"/>
   </g>
 
-  <g transform="translate(295, 80)">
-    <rect width="245" height="92" rx="10" fill="#1f0a0a" stroke="#ef4444" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="22">📉</text>
-    <text x="42" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#fca5a5">Bear Researcher</text>
-    <rect x="160" y="9" width="55" height="14" rx="7" fill="#ef4444" opacity="0.2"/>
-    <text x="187" y="20" font-family="sans-serif" font-size="9" font-weight="700" fill="#fca5a5" text-anchor="middle">BEARISH 8/10</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fda4af">Valuation overshoot risk</text>
-    <text x="14" y="56" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fda4af">Margin compression incoming</text>
-    <text x="14" y="70" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fda4af">Competitive pressure rising</text>
-    <g transform="translate(14, 80)">
-      <rect x="0" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="5" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="10" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="15" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="20" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="25" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="30" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="35" y="0" width="3" height="6" rx="1" fill="#ef4444"/>
-      <rect x="40" y="0" width="3" height="6" rx="1" fill="#1e293b"/>
-      <rect x="45" y="0" width="3" height="6" rx="1" fill="#1e293b"/>
-    </g>
+  <!-- Technical -->
+  <g transform="translate(198,74)">
+    <rect width="160" height="82" rx="9" fill="#0f1e35" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">📊</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#60a5fa">Technical</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#3b82f6" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#93c5fd" text-anchor="middle">8/10</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#93c5fd">Price above MA20/50/200</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#93c5fd">MACD bullish cross</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#93c5fd">Volume confirming trend</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#3b82f6" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#3b82f6"/>
   </g>
 
-  <g transform="translate(550, 80)">
-    <rect width="245" height="92" rx="10" fill="#0f1e35" stroke="#3b82f6" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="22">📊</text>
-    <text x="42" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#60a5fa">Technical Researcher</text>
-    <rect x="170" y="9" width="55" height="14" rx="7" fill="#3b82f6" opacity="0.2"/>
-    <text x="197" y="20" font-family="sans-serif" font-size="9" font-weight="700" fill="#60a5fa" text-anchor="middle">BULLISH 7/10</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd">Price above MA20/50/200</text>
-    <text x="14" y="56" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd">Higher highs + higher lows</text>
-    <text x="14" y="70" font-family="'Segoe UI', sans-serif" font-size="10" fill="#93c5fd">Volume confirming trend</text>
+  <!-- Fundamental -->
+  <g transform="translate(370,74)">
+    <rect width="160" height="82" rx="9" fill="#1a0f2e" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">💼</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#a78bfa">Fundamental</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#8b5cf6" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#c4b5fd" text-anchor="middle">6/10</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">PEG 1.8 — fairly valued</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">Gross margin 68% stable</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">FCF yield 3.2%</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#8b5cf6" opacity="0.3"/>
+    <rect x="12" y="75" width="42" height="4" rx="2" fill="#8b5cf6"/>
   </g>
 
-  <!-- Row 2 -->
-  <g transform="translate(40, 184)">
-    <rect width="195" height="76" rx="10" fill="#1a0f2e" stroke="#8b5cf6" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">💼</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#a78bfa">Fundamental</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">Strong cash flow growth</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">P/E vs peers attractive</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c4b5fd">Balance sheet healthy</text>
+  <!-- Credit -->
+  <g transform="translate(542,74)">
+    <rect width="160" height="82" rx="9" fill="#0d1632" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🏦</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#a5b4fc">Credit</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#6366f1" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#c7d2fe" text-anchor="middle">A–</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">D/E 0.41 — investment grade</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">Current ratio 2.1</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">Short float 2.3% — benign</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#6366f1" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#6366f1"/>
   </g>
 
-  <g transform="translate(245, 184)">
-    <rect width="195" height="76" rx="10" fill="#0a1f24" stroke="#06b6d4" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">🌐</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#22d3ee">Market</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">Risk-on regime</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">VIX subdued</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">USD weakening</text>
+  <!-- Macro -->
+  <g transform="translate(714,74)">
+    <rect width="160" height="82" rx="9" fill="#0a1f24" stroke="#06b6d4" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🌐</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#22d3ee">Macro</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#06b6d4" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#67e8f9" text-anchor="middle">TAIL</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">Risk-on · VIX 16</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">10Y 4.3% — rate stable</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#67e8f9">DXY easing — FX tailwind</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#06b6d4" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#06b6d4"/>
   </g>
 
-  <g transform="translate(450, 184)">
-    <rect width="195" height="76" rx="10" fill="#1f1200" stroke="#f59e0b" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">🏭</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#fbbf24">Industry</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">TAM expanding fast</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">Sector leader position</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">Tailwinds emerging</text>
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- ROW 2 : Industry | Volatility | Event | Flow | Risk -->
+
+  <!-- Industry -->
+  <g transform="translate(26,168)">
+    <rect width="160" height="82" rx="9" fill="#1f1200" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🏭</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#fbbf24">Sector Lead</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#f59e0b" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#fcd34d" text-anchor="middle">LEAD</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">Sector lifecycle: growth</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">+3.2% vs ETF — outperform</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fcd34d">Disruption tailwind</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#f59e0b" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#f59e0b"/>
   </g>
 
-  <g transform="translate(655, 184)">
-    <rect width="195" height="76" rx="10" fill="#0d1632" stroke="#6366f1" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">🧮</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#a5b4fc">Financial</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">ROIC 28% (top decile)</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">FCF growing 35% YoY</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#c7d2fe">Quality grade: A</text>
+  <!-- Volatility -->
+  <g transform="translate(198,168)">
+    <rect width="160" height="82" rx="9" fill="#0a1f1d" stroke="#14b8a6" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🎯</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#5eead4">Volatility</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#14b8a6" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#99f6e4" text-anchor="middle">BUY VOL</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">IV Rank 27 — cheap vol</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">GEX +$48M · vol-compress</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">ATM Δ 0.52, Θ –0.22</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#14b8a6" opacity="0.3"/>
+    <rect x="12" y="75" width="49" height="4" rx="2" fill="#14b8a6"/>
   </g>
 
-  <!-- Row 3 -->
-  <g transform="translate(40, 270)">
-    <rect width="245" height="76" rx="10" fill="#2a0a18" stroke="#f43f5e" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">📰</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#fb7185">News &amp; Events</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Earnings May 6 — implied 7.2% move</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Insider buying $4.2M last week</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Product launch June 1</text>
+  <!-- Event -->
+  <g transform="translate(370,168)">
+    <rect width="160" height="82" rx="9" fill="#2a0a18" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">📰</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#fb7185">Event-Driven</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#f43f5e" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#fda4af" text-anchor="middle">+7.2%</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Earnings May 12 — 7d</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Target $198 → +18% upside</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#fda4af">Catalyst uncrowded</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#f43f5e" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#f43f5e"/>
   </g>
 
-  <g transform="translate(295, 270)">
-    <rect width="245" height="76" rx="10" fill="#0a1f1d" stroke="#14b8a6" stroke-width="1.5"/>
-    <text x="14" y="22" font-family="sans-serif" font-size="20">🎯</text>
-    <text x="40" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#5eead4">Options Researcher</text>
-    <rect x="155" y="9" width="60" height="14" rx="7" fill="#14b8a6" opacity="0.2"/>
-    <text x="185" y="20" font-family="sans-serif" font-size="9" font-weight="700" fill="#5eead4" text-anchor="middle">NEW · 9th</text>
-    <text x="14" y="42" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">IV 94.5% · IV Rank 27</text>
-    <text x="14" y="55" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">Δ +0.52, Γ 0.018, Θ -0.22</text>
-    <text x="14" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#99f6e4">Net GEX +$48M (vol-compressing)</text>
+  <!-- Flow -->
+  <g transform="translate(542,168)">
+    <rect width="160" height="82" rx="9" fill="#0d1f14" stroke="#10b981" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">💸</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#34d399">Flow &amp; Positioning</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#10b981" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#86efac" text-anchor="middle">BULL</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#86efac">Short float 2.1% — low</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#86efac">Insiders: +$4.2M bought</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#86efac">P/C ratio 0.62 — bullish</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#10b981" opacity="0.3"/>
+    <rect x="12" y="75" width="56" height="4" rx="2" fill="#10b981"/>
   </g>
 
-  <!-- Arrow down to PM -->
-  <g transform="translate(560, 270)">
-    <rect width="290" height="76" rx="10" fill="#0f0a26" stroke="#7c3aed" stroke-width="2" stroke-dasharray="6,3"/>
-    <text x="20" y="22" font-family="sans-serif" font-size="20">🧠</text>
-    <text x="46" y="20" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#c084fc">PORTFOLIO MANAGER</text>
-    <text x="20" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#d8b4fe">Synthesizes all 9 voices</text>
-    <text x="20" y="54" font-family="'Segoe UI', sans-serif" font-size="9" fill="#d8b4fe">Final decision + actionable steps</text>
-    <text x="20" y="68" font-family="'Segoe UI', sans-serif" font-size="9" fill="#d8b4fe">Per-researcher synthesis chain</text>
+  <!-- Risk Manager -->
+  <g transform="translate(714,168)">
+    <rect width="160" height="82" rx="9" fill="#0f1318" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="12" y="24" font-family="sans-serif" font-size="18">🛡️</text>
+    <text x="36" y="22" font-family="'Segoe UI', sans-serif" font-size="10" font-weight="700" fill="#cbd5e1">Risk Manager</text>
+    <rect x="105" y="10" width="44" height="14" rx="7" fill="#94a3b8" opacity="0.25"/>
+    <text x="127" y="21" font-family="sans-serif" font-size="8" font-weight="700" fill="#e2e8f0" text-anchor="middle">MOD</text>
+    <text x="12" y="40" font-family="'Segoe UI', sans-serif" font-size="9" fill="#cbd5e1">ATR 2.8% — normal vol</text>
+    <text x="12" y="53" font-family="'Segoe UI', sans-serif" font-size="9" fill="#cbd5e1">Beta 1.24 · 1Y DD –28%</text>
+    <text x="12" y="66" font-family="'Segoe UI', sans-serif" font-size="9" fill="#cbd5e1">Stop: $152 (–2x ATR)</text>
+    <rect x="12" y="75" width="70" height="4" rx="2" fill="#94a3b8" opacity="0.3"/>
+    <rect x="12" y="75" width="42" height="4" rx="2" fill="#94a3b8"/>
   </g>
 
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- Debate bridge -->
+  <line x1="106" y1="260" x2="106" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="278" y1="260" x2="278" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="450" y1="260" x2="450" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="622" y1="260" x2="622" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="794" y1="260" x2="794" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="106" y1="278" x2="794" y2="278" stroke="#475569" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="450" y1="278" x2="450" y2="294" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <!-- Debate label -->
+  <rect x="310" y="264" width="280" height="18" rx="9" fill="#1e1b3a"/>
+  <text x="450" y="277" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" fill="#a78bfa" text-anchor="middle">⚔️ Cross-Examination Debate — 1v1 by opposing stance</text>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- Portfolio Manager -->
+  <rect x="130" y="298" width="640" height="68" rx="12" fill="url(#pm_grad)" stroke="#7c3aed" stroke-width="2" stroke-dasharray="6,3"/>
+  <text x="166" y="320" font-family="sans-serif" font-size="18">🧠</text>
+  <text x="192" y="320" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" fill="#c084fc">PORTFOLIO MANAGER</text>
+  <rect x="560" y="308" width="190" height="16" rx="8" fill="#7c3aed" opacity="0.3"/>
+  <text x="655" y="320" font-family="'Segoe UI', sans-serif" font-size="9" fill="#d8b4fe" text-anchor="middle">synthesizes all 10 voices post-debate</text>
+  <text x="166" y="340" font-family="'Segoe UI', sans-serif" font-size="10" fill="#d8b4fe">8 of 10 bullish · final decision with per-analyst attribution + actionable steps</text>
+  <text x="166" y="356" font-family="'Segoe UI', sans-serif" font-size="10" fill="#d8b4fe">Options mode: exact legs · strike · expiry · max loss · breakeven · win probability</text>
+
+  <!-- ═══════════════════════════════════════════════ -->
   <!-- Final Decision Card -->
-  <rect x="40" y="378" width="820" height="142" rx="14" fill="#0a0a18" stroke="#fbbf24" stroke-width="2"/>
-  <rect x="40" y="378" width="820" height="3" fill="url(#ph_emerald)" rx="1"/>
-  <text x="60" y="408" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#fbbf24">⭐ FINAL DECISION</text>
-  <rect x="660" y="392" width="180" height="32" rx="16" fill="url(#ph_emerald)"/>
-  <text x="750" y="413" font-family="sans-serif" font-size="13" font-weight="900" fill="white" text-anchor="middle">BUY · 8/10</text>
+  <rect x="30" y="388" width="840" height="162" rx="14" fill="#06080f" stroke="#fbbf24" stroke-width="1.5"/>
+  <rect x="30" y="388" width="840" height="4" fill="url(#dec_grad)" rx="2"/>
 
-  <text x="60" y="438" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#a8a29e">Consensus:</text>
-  <text x="135" y="438" font-family="'Segoe UI', sans-serif" font-size="11" fill="#fcd34d">6 of 9 bullish, 2 bearish, 1 neutral</text>
+  <!-- Decision header -->
+  <text x="56" y="416" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#fbbf24">⭐ FINAL DECISION</text>
+  <rect x="680" y="400" width="160" height="34" rx="17" fill="url(#buy_btn)" filter="url(#glow2)"/>
+  <text x="760" y="422" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="900" fill="white" text-anchor="middle">BUY · 8/10</text>
 
-  <text x="60" y="460" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#a8a29e">Thesis:</text>
-  <text x="60" y="478" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">Strong technical + fundamental alignment with bullish options flow. The Bull case rests on analyst consensus</text>
-  <text x="60" y="492" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">and IV pricing major upside; Bear's valuation concern is offset by margin trajectory. Options researcher</text>
-  <text x="60" y="506" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">confirms positive GEX regime — favors buying calls into earnings. Trigger: hold above $445.</text>
+  <!-- Consensus row -->
+  <text x="56" y="446" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#a8a29e">Consensus:</text>
+  <rect x="140" y="434" width="10" height="10" rx="2" fill="#10b981"/>
+  <text x="156" y="445" font-family="'Segoe UI', sans-serif" font-size="10" fill="#34d399">8 bullish</text>
+  <rect x="220" y="434" width="10" height="10" rx="2" fill="#ef4444"/>
+  <text x="236" y="445" font-family="'Segoe UI', sans-serif" font-size="10" fill="#fca5a5">1 bearish</text>
+  <rect x="300" y="434" width="10" height="10" rx="2" fill="#94a3b8"/>
+  <text x="316" y="445" font-family="'Segoe UI', sans-serif" font-size="10" fill="#cbd5e1">1 neutral</text>
+
+  <!-- Thesis -->
+  <text x="56" y="468" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#a8a29e">Thesis:</text>
+  <text x="56" y="486" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">Strong Quant + Technical alignment (momentum +2.1σ, MA20/50/200 stack intact). Credit desk grades balance sheet A–, removing solvency risk.</text>
+  <text x="56" y="502" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">Volatility confirms IV Rank 27 (cheap) — favors buying calls pre-earnings. Flow analyst: insider buying $4.2M + low short float. Risk Manager sets stop $152.</text>
+  <text x="56" y="518" font-family="'Segoe UI', sans-serif" font-size="10" fill="#e2e8f0">Strategy: Bull Call Spread · +$167C / –$175C · May 19 expiry · Max loss $320 · Breakeven $169.2 · Win prob 62%</text>
+
+  <!-- Bottom bar -->
+  <rect x="30" y="546" width="840" height="4" fill="url(#dec_grad)" rx="2" opacity="0.4"/>
+  <text x="450" y="560" font-family="'Segoe UI', sans-serif" font-size="9" fill="#475569" text-anchor="middle">PIPELINE v3.7-burst3 · burst=3 · concurrency=3 · retries=3 · phase_timeout=240s</text>
 </svg>
