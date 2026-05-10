@@ -35,6 +35,14 @@ export interface TraderHistoryEntry {
   manager: ManagerDecision;
 }
 
+/** A ticker queued for batch trader analysis. */
+export interface BatchQueueItem {
+  id: string;       // unique ID (timestamp-based)
+  ticker: string;
+  status: "queued" | "analyzing" | "completed" | "failed";
+  error?: string;
+}
+
 const TRADER_HISTORY_KEY = "optionsai.traderHistory.v1";
 const TRADER_HISTORY_MAX = 30;
 
@@ -165,6 +173,13 @@ interface AppState {
   /** Saved analyses for re-viewing later (persisted to localStorage). */
   traderHistory: TraderHistoryEntry[];
 
+  /** The locale that was active when the current analysis was run. */
+  traderAnalysisLocale: Locale | null;
+
+  /** Batch processing queue for multi-ticker trader analysis. */
+  batchQueue: BatchQueueItem[];
+  batchRunning: boolean;
+
   // Actions
   searchTicker: (ticker: string) => Promise<void>;
   fetchForecast: (ticker: string) => Promise<void>;
@@ -209,6 +224,16 @@ interface AppState {
   deleteTraderHistory: (id: string) => void;
   /** Re-hydrate trader history from localStorage on first mount. */
   hydrateTraderHistory: () => void;
+  /** Add a ticker to the batch processing queue. */
+  addToBatchQueue: (ticker: string) => void;
+  /** Remove a ticker from the batch queue (queued items only). */
+  removeFromBatchQueue: (id: string) => void;
+  /** Clear all non-running items from the batch queue. */
+  clearBatchQueue: () => void;
+  /** Start processing the batch queue serially. */
+  startBatchProcessing: () => Promise<void>;
+  /** Stop batch processing after the current ticker completes. */
+  stopBatchProcessing: () => void;
   fetchOHLCV: (ticker: string, range?: string) => Promise<void>;
   setOHLCVRange: (range: string) => void;
   fetchFullOptionsChain: (ticker: string, expiration: string) => Promise<void>;
@@ -345,9 +370,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   traderResearchers: [] as ResearcherResult[],
   traderManager: null as ManagerDecision | null,
   traderError: null as string | null,
-  traderSelectedResearchers: [] as string[],   // empty = all 9
-  traderActiveCount: 9,
+  traderSelectedResearchers: [] as string[],   // empty = all 10
+  traderActiveCount: 10,
   traderHistory: [] as TraderHistoryEntry[],
+  traderAnalysisLocale: null as Locale | null,
+  batchQueue: [] as BatchQueueItem[],
+  batchRunning: false,
 
   // ---- Actions ----
 
@@ -849,6 +877,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setLocale: (locale: Locale) => {
     set({ locale });
+    // If a trader analysis was run in a different language, clear it —
+    // the LLM-generated content is fixed in the old language, so keeping
+    // it would show misleading results when the user downloads a report.
+    const { traderAnalysisLocale, traderPhase } = get();
+    if (traderAnalysisLocale && traderAnalysisLocale !== locale && (traderPhase === "done" || traderPhase === "error")) {
+      set({
+        traderPhase: "idle",
+        traderResearchers: [],
+        traderManager: null,
+        traderError: null,
+        traderTicker: null,
+        traderAnalysisLocale: null,
+      });
+    }
     // 切换语言后重新获取 AI 内容
     const { ticker, marketData, strategies } = get();
     if (ticker && marketData) {
@@ -904,6 +946,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     traderManager: null,
     traderError: null,
     traderTicker: null,
+    traderAnalysisLocale: null,
   }),
 
   hydrateTraderHistory: () => {
@@ -922,6 +965,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       traderResearchers: entry.researchers,
       traderManager: entry.manager,
       traderError: null,
+      traderAnalysisLocale: entry.locale,
     });
   },
 
@@ -929,6 +973,82 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = get().traderHistory.filter((e) => e.id !== id);
     saveTraderHistory(next);
     set({ traderHistory: next });
+  },
+
+  // ---- Batch queue actions ----
+
+  addToBatchQueue: (ticker: string) => {
+    const item: BatchQueueItem = { id: `${Date.now()}`, ticker, status: "queued" };
+    set((s) => ({ batchQueue: [...s.batchQueue, item] }));
+  },
+
+  removeFromBatchQueue: (id: string) => {
+    set((s) => ({ batchQueue: s.batchQueue.filter((q) => q.id !== id || q.status === "analyzing") }));
+  },
+
+  clearBatchQueue: () => {
+    const { batchRunning } = get();
+    if (batchRunning) return;
+    set({ batchQueue: [] });
+  },
+
+  startBatchProcessing: async () => {
+    const { batchRunning, batchQueue } = get();
+    if (batchRunning) return;
+
+    // Mark the first queued item as analyzing
+    const queue = batchQueue.filter((q) => q.status === "queued" || q.status === "analyzing");
+    if (queue.length === 0) return;
+
+    set({ batchRunning: true });
+
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      // Check if we should stop
+      if (!get().batchRunning) break;
+
+      // Mark current as analyzing
+      set((s) => ({
+        batchQueue: s.batchQueue.map((q) =>
+          q.id === item.id ? { ...q, status: "analyzing" } : q,
+        ),
+      }));
+
+      try {
+        // Run the full analysis pipeline. runTraderAnalysis internally calls
+        // streamTraderAgent and awaits the SSE stream until "done" or "error".
+        await get().runTraderAnalysis(item.ticker);
+
+        // Atomic read — JS is single-threaded so no macrotask (click handler)
+        // can interleave between await resume and this get().
+        const { traderPhase: phase, traderError: errMsg } = get();
+        if (phase === "done") {
+          set((s) => ({
+            batchQueue: s.batchQueue.map((q) =>
+              q.id === item.id ? { ...q, status: "completed" } : q,
+            ),
+          }));
+        } else {
+          set((s) => ({
+            batchQueue: s.batchQueue.map((q) =>
+              q.id === item.id ? { ...q, status: "failed", error: errMsg || "Unknown error" } : q,
+            ),
+          }));
+        }
+      } catch (e) {
+        set((s) => ({
+          batchQueue: s.batchQueue.map((q) =>
+            q.id === item.id ? { ...q, status: "failed", error: e instanceof Error ? e.message : String(e) } : q,
+          ),
+        }));
+      }
+    }
+
+    set({ batchRunning: false });
+  },
+
+  stopBatchProcessing: () => {
+    set({ batchRunning: false });
   },
 
   /**
@@ -940,15 +1060,28 @@ export const useAppStore = create<AppState>((set, get) => ({
    */
   runTraderAnalysis: async (ticker: string) => {
     const { traderMode, locale, traderSelectedResearchers } = get();
+    // Defensive: strip any stale v2 IDs that might be in the selection from a
+    // previous session. Only valid v3 IDs are accepted by the backend. This
+    // prevents the symptom where old IDs reduce the active analyst count.
+    const VALID_V3_IDS = ["quant", "technical", "fundamental", "credit", "macro", "industry", "volatility", "event", "flow", "risk"];
+    const cleanSelected = traderSelectedResearchers.filter((id) => VALID_V3_IDS.includes(id));
+    // If stale v2 IDs were present (lengths differ), reset to ALL 10 rather than
+    // keeping only the 3-ID intersection — that's what was causing the "3/10" bug.
+    const hasStaleIds = cleanSelected.length !== traderSelectedResearchers.length;
+    const effectiveSelected = hasStaleIds ? [] : cleanSelected;
+    if (hasStaleIds) {
+      set({ traderSelectedResearchers: [] }); // reset to "all 10"
+    }
     set({
       traderTicker: ticker,
       traderPhase: "gathering",
       traderResearchers: [],
       traderManager: null,
       traderError: null,
+      traderAnalysisLocale: locale,
       // Pre-set active count so progress bar starts with right scale; backend
       // will overwrite via `selected` event with authoritative count.
-      traderActiveCount: traderSelectedResearchers.length === 0 ? 10 : traderSelectedResearchers.length,
+      traderActiveCount: effectiveSelected.length === 0 ? 10 : effectiveSelected.length,
     });
     try {
       for await (const event of streamTraderAgent({
@@ -956,7 +1089,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         mode: traderMode,
         locale,
         // Only send when user picked a subset; omitted = backend runs all 10
-        selected_researchers: traderSelectedResearchers.length > 0 ? traderSelectedResearchers : undefined,
+        selected_researchers: effectiveSelected.length > 0 ? effectiveSelected : undefined,
       })) {
         if (event.type === "phase") {
           if (event.phase === "research_start") set({ traderPhase: "research" });

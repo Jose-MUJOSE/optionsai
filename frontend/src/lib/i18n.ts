@@ -351,6 +351,20 @@ const translations = {
   "trader.decisionBuy":    { en: "BUY",                                                                   zh: "买入" },
   "trader.decisionHold":   { en: "HOLD",                                                                  zh: "观望" },
   "trader.decisionSell":   { en: "SELL",                                                                  zh: "卖出" },
+
+  // Batch queue
+  "batch.addToQueue":       { en: "Add to Queue",                                                          zh: "加入队列" },
+  "batch.start":            { en: "Start Batch",                                                           zh: "开始批量" },
+  "batch.stop":             { en: "Stop",                                                                  zh: "停止" },
+  "batch.clear":            { en: "Clear Queue",                                                           zh: "清空队列" },
+  "batch.title":            { en: "Batch Queue",                                                           zh: "批量队列" },
+  "batch.empty":            { en: "Add tickers to queue them for batch analysis. Each takes ~1.5 min.",  zh: "添加股票代码到队列进行批量分析。每个约需 1.5 分钟。" },
+  "batch.queued":           { en: "Queued",                                                                zh: "排队中" },
+  "batch.analyzing":        { en: "Analyzing...",                                                          zh: "分析中..." },
+  "batch.completed":        { en: "Completed",                                                             zh: "已完成" },
+  "batch.failed":           { en: "Failed",                                                                zh: "失败" },
+  "batch.progress":         { en: "{{done}}/{{total}} completed",                                           zh: "已完成 {{done}}/{{total}}" },
+  "batch.viewResult":       { en: "View",                                                                  zh: "查看" },
 } as const;
 
 type TranslationKey = keyof typeof translations;

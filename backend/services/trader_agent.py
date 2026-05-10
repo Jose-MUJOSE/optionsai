@@ -32,7 +32,7 @@ _logger = logging.getLogger(__name__)
 # Version tag — bumped whenever the pipeline contract changes. Printed at
 # startup AND streamed in the first SSE event so the frontend can verify
 # it's talking to a v3.x backend.
-PIPELINE_VERSION = "v3.2"
+PIPELINE_VERSION = "v3.7-burst3"
 
 
 def _safe_log(message: str) -> None:
@@ -53,7 +53,7 @@ def _safe_log(message: str) -> None:
 
 # Banner printed once per process import so the user can verify which
 # version is actually loaded after a restart.
-print(f"[trader_agent] Loaded pipeline {PIPELINE_VERSION} — concurrency cap=4, max_retries=5", flush=True)
+print(f"[trader_agent] Loaded pipeline {PIPELINE_VERSION} — burst=3, concurrency=3, retries=3, phase_timeout=240s", flush=True)
 
 from backend.services.data_fetcher import DataFetcher
 from backend.services.researcher_context import (
@@ -930,23 +930,31 @@ def format_researcher_specific_context(ctx: dict, researcher_id: str, mode: Anal
 class TraderAgentPipeline:
     """Orchestrates the 10-analyst debate + portfolio-manager decision.
 
-    To avoid hitting rate limits when fanning out 10 LLM calls at once, the
-    pipeline serialises calls behind a semaphore (max 4 concurrent) and
-    retries each call up to 5 times with exponential backoff. This means
-    no single call is "lost" to a transient 429 / timeout / connection drop.
+    Concurrency=3 matches DeepSeek's token-bucket burst=3, so no call is
+    rate-limited on the first attempt. Each call gets 3 retries with
+    exponential backoff for transient failures.
     """
 
-    # Cap simultaneous LLM calls to avoid 429s and connection-pool exhaustion.
-    # 4 keeps throughput high while staying well under DeepSeek's per-minute
-    # request quotas. Tuned empirically — 10 concurrent reliably failed,
-    # 4 reliably succeeds.
-    MAX_CONCURRENT_LLM_CALLS = 4
+    # Concurrency tuned to DeepSeek's token-bucket (burst=3, 0.83 QPS refill).
+    # 3 concurrent calls consume exactly the burst, and the ~15-25s each call
+    # takes gives the bucket time to fully refill before the next batch starts.
+    # 5 concurrent (v3.5) exceeded the burst → 429s on 2/5 calls every batch.
+    MAX_CONCURRENT_LLM_CALLS = 3
 
-    # Retry policy: 5 attempts, exponential backoff with jitter so retries
-    # don't synchronise. Total worst-case wait ~30s.
-    MAX_RETRIES = 5
-    INITIAL_BACKOFF_SECONDS = 1.5
-    MAX_BACKOFF_SECONDS = 12.0
+    # Retry policy: 3 attempts with exponential backoff.
+    MAX_RETRIES = 3
+    INITIAL_BACKOFF_SECONDS = 2.0
+    MAX_BACKOFF_SECONDS = 8.0
+
+    # Per-call hard timeout. 20s is enough for DeepSeek on most tickers.
+    LLM_CALL_TIMEOUT_SECONDS = 20.0
+
+    # SSE heartbeat interval to keep the browser connection alive.
+    HEARTBEAT_INTERVAL_SECONDS = 8.0
+
+    # Hard cap on the entire research phase. 10 analysts in batches of 3
+    # = 4 batches × ~30s worst case ≈ 120s. 240s gives 2× headroom.
+    RESEARCH_PHASE_TIMEOUT_SECONDS = 240
 
     def __init__(self, llm_client, model: str, fetcher: DataFetcher):
         self.client = llm_client
@@ -988,7 +996,7 @@ class TraderAgentPipeline:
                         messages=messages,
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        timeout=60.0,  # explicit per-call ceiling
+                        timeout=self.LLM_CALL_TIMEOUT_SECONDS,
                     )
                 content = resp.choices[0].message.content or ""
                 if content.strip():
@@ -1391,7 +1399,12 @@ class TraderAgentPipeline:
 
             # 1. Gather context
             yield self._sse({"type": "phase", "phase": "gathering_data", "pipeline_version": PIPELINE_VERSION})
-            print(f"[trader_agent] Run start: ticker={ticker} mode={mode} locale={locale} active={len(active_ids)} version={PIPELINE_VERSION}", flush=True)
+            print(
+                f"[trader_agent] Run start: ticker={ticker} mode={mode} locale={locale} "
+                f"active={len(active_ids)} version={PIPELINE_VERSION} "
+                f"selected_in={selected_researchers!r}",
+                flush=True,
+            )
             ctx = await gather_research_context(ticker, self.fetcher)
 
             # Tell the frontend exactly which researchers will fire so progress bars
@@ -1400,59 +1413,119 @@ class TraderAgentPipeline:
 
             # 2. Research phase — each analyst gets a SPECIALIZED prompt.
             #
-            # CRITICAL: every analyst MUST emit a researcher event, even when
-            # the LLM call or context formatting fails. If we let an exception
-            # escape, asyncio.as_completed re-raises and we drop subsequent
-            # analysts. Wrapping each call in safe_call guarantees ALL N
-            # selected analysts produce exactly one event.
+            # CRITICAL: every analyst MUST emit exactly one researcher SSE event.
+            #
+            # Design: we wrap each coroutine in an explicit asyncio.Task (via
+            # ensure_future) keyed by analyst ID. That way, even if a task is
+            # cancelled or raises BaseException (including CancelledError, which
+            # is NOT caught by `except Exception` in Python 3.8+), we know
+            # *which* analyst failed and can immediately emit a fallback event
+            # rather than silently dropping it.
+            #
+            # Previous bug: safe_call used `except Exception`, which misses
+            # asyncio.CancelledError (a BaseException subclass). If the httpx
+            # transport raised CancelledError (e.g. on Windows, or under load),
+            # it leaked out of safe_call → the as_completed `continue` skipped
+            # both researcher_results.append AND yield SSE → analyst vanished.
             yield self._sse({"type": "phase", "phase": "research_start"})
+
+            def _make_fallback(key: str, reason: str) -> dict:
+                spec = RESEARCHER_SPECS[key]
+                name = spec["name_zh"] if locale == "zh" else spec["name_en"]
+                msg = reason if locale != "zh" else f"流程错误：{reason}"
+                return {
+                    "id": key,
+                    "name_en": spec["name_en"],
+                    "name_zh": spec["name_zh"],
+                    "icon": spec["icon"],
+                    "color": spec["color"],
+                    "stance": "neutral",
+                    "confidence": 5,
+                    "headline": f"[{name}] {'analysis unavailable' if locale != 'zh' else '本轮未生成有效分析'}",
+                    "key_points": [msg],
+                    "evidence": "",
+                    "risks": "",
+                }
 
             async def safe_call(key: str) -> dict:
                 spec = RESEARCHER_SPECS[key]
                 try:
                     block = format_researcher_specific_context(ctx, key, mode, locale)
                     return await self._call_researcher(key, spec, block, locale)
-                except Exception as e:
+                except BaseException as e:
+                    # Catch ALL exceptions including asyncio.CancelledError
+                    # (BaseException subclass, NOT caught by `except Exception`).
                     _safe_log(f"[trader_agent] {key} pipeline error: {type(e).__name__}: {e}")
-                    fallback_msg = (
-                        f"Pipeline error: {type(e).__name__}"
-                        if locale != "zh"
-                        else f"流程错误：{type(e).__name__}"
-                    )
-                    name = spec["name_zh"] if locale == "zh" else spec["name_en"]
-                    return {
-                        "id": key,
-                        "name_en": spec["name_en"],
-                        "name_zh": spec["name_zh"],
-                        "icon": spec["icon"],
-                        "color": spec["color"],
-                        "stance": "neutral",
-                        "confidence": 5,
-                        "headline": (
-                            f"[{name}] {'analysis unavailable' if locale != 'zh' else '本轮未生成有效分析'}"
-                        ),
-                        "key_points": [fallback_msg],
-                        "evidence": "",
-                        "risks": "",
-                    }
+                    return _make_fallback(key, type(e).__name__)
 
-            tasks = [safe_call(key) for key in active_ids]
+            # Create named Tasks so we can map each future back to its analyst
+            # ID. CRITICAL: we use asyncio.wait() (not as_completed) because
+            # as_completed yields wrapper coroutines, not the original tasks,
+            # so dict lookup by future would always fail with KeyError.
+            # asyncio.wait() returns the original Task objects in `done`.
+            task_map: dict[asyncio.Future, str] = {
+                asyncio.ensure_future(safe_call(key)): key
+                for key in active_ids
+            }
+
             researcher_results: list[dict] = []
             seen_ids: set[str] = set()
-            for coro in asyncio.as_completed(tasks):
-                try:
-                    result = await coro
-                except Exception as e:
-                    # safe_call should never raise, but defend in depth.
-                    _safe_log(f"[trader_agent] safe_call escaped exception: {e}")
-                    continue
-                researcher_results.append(result)
-                seen_ids.add(result["id"])
-                _safe_log(
-                    f"[trader_agent] researcher {len(researcher_results)}/{len(active_ids)} -> "
-                    f"{result['id']} ({result.get('stance', '?')})"
+            pending: set[asyncio.Future] = set(task_map.keys())
+            import time as _time
+            research_deadline = _time.monotonic() + self.RESEARCH_PHASE_TIMEOUT_SECONDS
+            while pending:
+                # Use a short timeout so we can send SSE heartbeats to keep the
+                # browser connection alive. Without heartbeats, the browser drops
+                # the SSE stream after its own idle-connection timeout (~60s),
+                # which is why only the first few (fastest) researchers appeared.
+                time_left = research_deadline - _time.monotonic()
+                if time_left <= 0:
+                    # Hard deadline hit — cancel remaining tasks and fall through
+                    # to the safety net below which emits fallback events for them.
+                    _safe_log(
+                        f"[trader_agent] research phase timeout: "
+                        f"{len(pending)} tasks still pending, cancelling"
+                    )
+                    for fut in pending:
+                        fut.cancel()
+                    pending = set()
+                    break
+
+                done, pending = await asyncio.wait(
+                    pending,
+                    return_when=asyncio.FIRST_COMPLETED,
+                    timeout=min(self.HEARTBEAT_INTERVAL_SECONDS, time_left),
                 )
-                yield self._sse({"type": "researcher", "result": result})
+                if not done:
+                    # Timeout expired — no task completed yet. Emit a heartbeat
+                    # SSE comment so the browser doesn't close the connection.
+                    yield ": heartbeat\n\n"
+                    continue
+
+                for future in done:
+                    key = task_map[future]
+                    try:
+                        result = future.result()
+                    except BaseException as e:
+                        # An exception escaped safe_call — emit fallback immediately
+                        # so this analyst is never silently dropped.
+                        _safe_log(
+                            f"[trader_agent] {key} task exception (escaped safe_call): "
+                            f"{type(e).__name__}: {e}"
+                        )
+                        result = _make_fallback(key, type(e).__name__)
+                    # Defensive: if safe_call somehow returned a malformed dict
+                    # (no 'id'), patch it back to the analyst we sent.
+                    if not isinstance(result, dict) or "id" not in result:
+                        _safe_log(f"[trader_agent] {key} returned malformed result; using fallback")
+                        result = _make_fallback(key, "malformed_result")
+                    researcher_results.append(result)
+                    seen_ids.add(result["id"])
+                    _safe_log(
+                        f"[trader_agent] researcher {len(researcher_results)}/{len(active_ids)} -> "
+                        f"{result['id']} ({result.get('stance', '?')})"
+                    )
+                    yield self._sse({"type": "researcher", "result": result})
 
             # FINAL SAFETY NET: emit a fallback event for any analyst that
             # somehow didn't produce a result. This guarantees the frontend
@@ -1556,10 +1629,31 @@ class TraderAgentPipeline:
                 if r["id"] in rebuttals:
                     r["rebuttal"] = rebuttals[r["id"]]
 
-            # 4. Manager phase — sees both initial views AND debate rebuttals
+            # 4. Manager phase — sees both initial views AND debate rebuttals.
+            # Wrap in BaseException catch so a manager LLM failure (including
+            # CancelledError) doesn't lose the researcher results we already have.
             yield self._sse({"type": "phase", "phase": "manager_start"})
             base_block = format_context_for_researcher(ctx, mode, locale)
-            decision = await self._call_manager(researcher_results, base_block, mode, locale)
+            try:
+                decision = await self._call_manager(researcher_results, base_block, mode, locale)
+            except BaseException as e:
+                _safe_log(f"[trader_agent] manager pipeline error: {type(e).__name__}: {e}")
+                decision = {
+                    "decision": "hold",
+                    "conviction": 5,
+                    "thesis": (
+                        f"Manager analysis failed: {type(e).__name__}. "
+                        "Researcher briefings are still available below."
+                        if locale != "zh"
+                        else f"投资经理分析失败：{type(e).__name__}。下方仍可查看各研究员的独立简报。"
+                    ),
+                    "debate_summary": "",
+                    "key_catalysts": [],
+                    "main_risks": [],
+                    "synthesis": {},
+                    "actionable_steps": [],
+                    "consensus_score": "",
+                }
             yield self._sse({
                 "type": "manager",
                 "result": {"mode": mode, "ticker": ticker, **decision},
@@ -1572,7 +1666,9 @@ class TraderAgentPipeline:
                 "manager": decision,
             })
 
-        except Exception as e:
+        except BaseException as e:
+            # Catch BaseException (incl. CancelledError) so the user sees an
+            # explicit error event rather than a silent SSE stream drop.
             yield self._sse({"type": "error", "message": f"{type(e).__name__}: {str(e)}"})
 
     @staticmethod

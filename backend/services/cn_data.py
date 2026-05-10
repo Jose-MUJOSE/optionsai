@@ -36,6 +36,111 @@ def _ticker_to_code(ticker: str) -> Optional[str]:
 # Company profile
 # ============================================================
 
+async def _fetch_cn_valuation_indicators(code: str) -> dict:
+    """Latest daily valuation indicators from 乐咕乐股 (PE-TTM, PB, PS-TTM, DV-TTM).
+
+    Returns a dict like {"trailing_pe": 21.4, "price_to_book": 8.7, ...} with
+    None for any field that wasn't reported. Failure of the upstream call
+    silently returns an empty dict — callers must tolerate missing fields.
+    """
+    def _sync():
+        try:
+            df = ak.stock_a_indicator_lg(symbol=code)
+            if df is None or df.empty:
+                return None
+            # Sort newest-last and take the most recent row
+            if "trade_date" in df.columns:
+                df = df.sort_values("trade_date")
+            return df.iloc[-1].to_dict()
+        except Exception:
+            return None
+
+    row = await asyncio.to_thread(_sync)
+    if not row:
+        return {}
+
+    def _f(key: str) -> Optional[float]:
+        v = row.get(key)
+        try:
+            fv = float(v)
+            return fv if fv == fv else None  # filter NaN
+        except (TypeError, ValueError):
+            return None
+
+    # 乐咕乐股 returns dividend_yield as a percent (e.g. 1.85 = 1.85%);
+    # CompanyProfile schema uses fraction (0.0185), so divide by 100.
+    dy = _f("dv_ttm")
+    return {
+        "trailing_pe": _f("pe_ttm"),
+        "price_to_book": _f("pb"),
+        "price_to_sales_ttm": _f("ps_ttm"),
+        "dividend_yield": (dy / 100.0) if dy is not None else None,
+    }
+
+
+async def _fetch_cn_quality_metrics(code: str) -> dict:
+    """ROE, margins, revenue growth from `stock_financial_abstract` indicators.
+
+    The abstract endpoint returns ~80 indicators × N quarters. We pull the
+    most-recent value for each metric we care about and convert percentages
+    to fractions to stay consistent with the US CompanyProfile schema.
+    """
+    def _sync():
+        try:
+            return ak.stock_financial_abstract(symbol=code)
+        except Exception:
+            return None
+
+    df = await asyncio.to_thread(_sync)
+    if df is None or df.empty:
+        return {}
+
+    # Build lookup: indicator_label -> latest_value (newest period column first)
+    period_cols = sorted(
+        [c for c in df.columns if isinstance(c, str) and c.isdigit() and len(c) == 8],
+        reverse=True,
+    )
+    if not period_cols:
+        return {}
+    latest_col = period_cols[0]
+
+    def _latest(label: str) -> Optional[float]:
+        rows = df[df["指标"] == label] if "指标" in df.columns else None
+        if rows is None or rows.empty:
+            return None
+        v = rows.iloc[0].get(latest_col)
+        try:
+            fv = float(v)
+            return fv if fv == fv else None
+        except (TypeError, ValueError):
+            return None
+
+    def _pct(v: Optional[float]) -> Optional[float]:
+        return (v / 100.0) if v is not None else None
+
+    revenue_ttm = _latest("营业总收入")
+    net_income = _latest("归母净利润") or _latest("净利润")
+    gross_margin = _pct(_latest("毛利率"))
+    profit_margin = _pct(_latest("净利率"))
+    roe = _pct(_latest("净资产收益率") or _latest("加权净资产收益率"))
+    revenue_growth = _pct(_latest("营业总收入同比增长率") or _latest("营收同比增长率"))
+    earnings_growth = _pct(_latest("归母净利润同比增长率") or _latest("净利润同比增长率"))
+
+    # Net margin fallback: derive from revenue + net_income if 净利率 wasn't reported
+    if profit_margin is None and revenue_ttm not in (None, 0) and net_income is not None:
+        profit_margin = net_income / revenue_ttm
+
+    return {
+        "revenue_ttm": revenue_ttm,
+        "net_income_ttm": net_income,
+        "gross_margin": gross_margin,
+        "profit_margin": profit_margin,
+        "return_on_equity": roe,
+        "revenue_growth_yoy": revenue_growth,
+        "earnings_growth_yoy": earnings_growth,
+    }
+
+
 async def fetch_cn_company_profile(ticker: str) -> Optional[dict]:
     """A-share company profile shaped to match the US CompanyProfile schema.
 
@@ -59,6 +164,13 @@ async def fetch_cn_company_profile(ticker: str) -> Optional[dict]:
     rows = await asyncio.to_thread(_sync)
     if not rows:
         return None
+
+    # Pull valuation + quality metrics concurrently. Both are best-effort
+    # — empty dict on failure so the profile still renders with what we have.
+    valuation, quality = await asyncio.gather(
+        _fetch_cn_valuation_indicators(code),
+        _fetch_cn_quality_metrics(code),
+    )
 
     # Industry text and listing date come back as strings/numbers; normalize.
     industry = str(rows.get("行业", "") or "")
@@ -110,36 +222,36 @@ async def fetch_cn_company_profile(ticker: str) -> Optional[dict]:
         "phone": None,
         "website": None,
         "full_time_employees": None,
-        # Valuation / market metrics
+        # Valuation — populated from 乐咕乐股 daily indicator endpoint
         "market_cap": market_cap,
         "enterprise_value": None,
-        "trailing_pe": None,
-        "forward_pe": None,
-        "price_to_book": None,
-        "price_to_sales_ttm": None,
+        "trailing_pe": valuation.get("trailing_pe"),
+        "forward_pe": None,  # No reliable forward consensus for A-shares
+        "price_to_book": valuation.get("price_to_book"),
+        "price_to_sales_ttm": valuation.get("price_to_sales_ttm"),
         "ev_to_ebitda": None,
         "peg_ratio": None,
-        "dividend_yield": None,
+        "dividend_yield": valuation.get("dividend_yield"),
         "payout_ratio": None,
-        # Financials (filled by /api/financials separately)
-        "revenue_ttm": None,
+        # Quality / growth — derived from 财务摘要 latest period
+        "revenue_ttm": quality.get("revenue_ttm"),
         "ebitda": None,
-        "net_income_ttm": None,
+        "net_income_ttm": quality.get("net_income_ttm"),
         "free_cash_flow": None,
         "operating_cash_flow": None,
         "total_cash": None,
         "total_debt": None,
-        "gross_margin": None,
+        "gross_margin": quality.get("gross_margin"),
         "operating_margin": None,
-        "profit_margin": None,
-        "return_on_equity": None,
+        "profit_margin": quality.get("profit_margin"),
+        "return_on_equity": quality.get("return_on_equity"),
         "return_on_assets": None,
         "debt_to_equity": None,
         "current_ratio": None,
-        "revenue_growth_yoy": None,
-        "earnings_growth_yoy": None,
+        "revenue_growth_yoy": quality.get("revenue_growth_yoy"),
+        "earnings_growth_yoy": quality.get("earnings_growth_yoy"),
         # Market metrics
-        "beta": None,
+        "beta": None,  # No standard A-share beta source via AKShare free tier
         "shares_outstanding": shares,
         "float_shares": float_shares,
         "current_price": None,  # filled by spot endpoint elsewhere

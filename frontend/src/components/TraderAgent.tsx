@@ -19,6 +19,11 @@ import {
   Users,
   Target as TargetIcon,
   ListChecks,
+  Plus,
+  Play,
+  Square,
+  X,
+  Clock,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
@@ -85,6 +90,7 @@ export default function TraderAgent() {
   const traderHistory = useAppStore((s) => s.traderHistory);
   const traderSelectedResearchers = useAppStore((s) => s.traderSelectedResearchers);
   const traderActiveCount = useAppStore((s) => s.traderActiveCount);
+  const traderAnalysisLocale = useAppStore((s) => s.traderAnalysisLocale);
   const setTraderMode = useAppStore((s) => s.setTraderMode);
   const toggleTraderResearcher = useAppStore((s) => s.toggleTraderResearcher);
   const setTraderSelectedResearchers = useAppStore((s) => s.setTraderSelectedResearchers);
@@ -93,6 +99,13 @@ export default function TraderAgent() {
   const loadTraderHistoryEntry = useAppStore((s) => s.loadTraderHistory);
   const deleteTraderHistoryEntry = useAppStore((s) => s.deleteTraderHistory);
   const hydrateTraderHistory = useAppStore((s) => s.hydrateTraderHistory);
+  const batchQueue = useAppStore((s) => s.batchQueue);
+  const batchRunning = useAppStore((s) => s.batchRunning);
+  const addToBatchQueue = useAppStore((s) => s.addToBatchQueue);
+  const removeFromBatchQueue = useAppStore((s) => s.removeFromBatchQueue);
+  const clearBatchQueue = useAppStore((s) => s.clearBatchQueue);
+  const startBatchProcessing = useAppStore((s) => s.startBatchProcessing);
+  const stopBatchProcessing = useAppStore((s) => s.stopBatchProcessing);
 
   const [downloading, setDownloading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -121,10 +134,13 @@ export default function TraderAgent() {
     if (!liveTicker || !traderManager) return;
     setDownloading(true);
     try {
+      // Use the locale the analysis was run in (not the current UI locale)
+      // so the report structure matches the LLM-generated content language.
+      const reportLocale = traderAnalysisLocale ?? locale;
       const blob = await downloadTraderReport({
         ticker: liveTicker,
         mode: traderMode,
-        locale,
+        locale: reportLocale,
         researchers: orderedResearchers,
         manager: traderManager,
       });
@@ -139,7 +155,7 @@ export default function TraderAgent() {
     } finally {
       setDownloading(false);
     }
-  }, [liveTicker, traderMode, locale, orderedResearchers, traderManager]);
+  }, [liveTicker, traderMode, locale, traderAnalysisLocale, orderedResearchers, traderManager]);
 
   if (!ticker && !liveTicker) {
     return <TraderEmptyState history={traderHistory} onLoad={loadTraderHistoryEntry} onDelete={deleteTraderHistoryEntry} locale={locale} />;
@@ -242,7 +258,7 @@ export default function TraderAgent() {
             <span className="text-[var(--line-mid)]">•</span>
             <span className="truncate">
               {(() => {
-                const n = traderSelectedResearchers.length === 0 ? 9 : traderSelectedResearchers.length;
+                const n = traderSelectedResearchers.length === 0 ? 10 : traderSelectedResearchers.length;
                 if (locale === "zh") return `${n} 位研究员将分析此股票，最后由投资经理给出决策`;
                 return `${n} researcher${n === 1 ? "" : "s"} will analyze this ticker, then a Portfolio Manager decides`;
               })()}
@@ -258,6 +274,15 @@ export default function TraderAgent() {
                 {locale === "zh" ? "清空" : "Clear"}
               </button>
             )}
+            <button
+              onClick={() => ticker && addToBatchQueue(ticker)}
+              disabled={!ticker || batchRunning}
+              className="h-9 px-3.5 text-[11px] font-semibold rounded-full bg-white border border-[var(--line-mid)] hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-px transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={locale === "zh" ? "将当前股票加入批量队列" : "Add current ticker to batch queue"}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {t("batch.addToQueue", locale)}
+            </button>
             <button
               onClick={handleRun}
               disabled={isRunning || !ticker}
@@ -278,6 +303,113 @@ export default function TraderAgent() {
           </div>
         </div>
       </div>
+
+      {/* Batch Queue Panel */}
+      {(batchQueue.length > 0 || batchRunning) && (
+        <div className="card-elevated p-5 space-y-3 anim-fade-up">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-[var(--accent)]" />
+              <h3 className="text-sm font-bold text-[var(--text-0)]">{t("batch.title", locale)}</h3>
+              {batchRunning && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 anim-data-pulse" />
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {!batchRunning ? (
+                <>
+                  <button
+                    onClick={startBatchProcessing}
+                    disabled={batchQueue.every((q) => q.status !== "queued")}
+                    className="h-8 px-3 text-[11px] font-semibold rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:-translate-y-px transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Play className="w-3 h-3" />
+                    {t("batch.start", locale)}
+                  </button>
+                  <button
+                    onClick={clearBatchQueue}
+                    disabled={batchQueue.some((q) => q.status === "analyzing")}
+                    className="h-8 px-3 text-[11px] font-semibold rounded-full bg-white border border-[var(--line-mid)] hover:border-red-300 hover:text-red-600 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    {t("batch.clear", locale)}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={stopBatchProcessing}
+                  className="h-8 px-3 text-[11px] font-semibold rounded-full bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Square className="w-3 h-3" />
+                  {t("batch.stop", locale)}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress summary */}
+          {batchQueue.length > 0 && (
+            <div className="text-[11px] text-[var(--text-2)]">
+              {t("batch.progress", locale)
+                .replace("{{done}}", String(batchQueue.filter((q) => q.status === "completed").length))
+                .replace("{{total}}", String(batchQueue.length))}
+            </div>
+          )}
+
+          {/* Queue items */}
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {batchQueue.length === 0 && (
+              <p className="text-[11px] text-[var(--text-2)] italic">{t("batch.empty", locale)}</p>
+            )}
+            {batchQueue.map((item) => {
+              const statusCfg = {
+                queued:    { bg: "bg-slate-50", ring: "ring-slate-200", dot: "bg-slate-400", label: t("batch.queued", locale) },
+                analyzing: { bg: "bg-amber-50", ring: "ring-amber-200", dot: "bg-amber-500 anim-data-pulse", label: t("batch.analyzing", locale) },
+                completed: { bg: "bg-emerald-50", ring: "ring-emerald-200", dot: "bg-emerald-500", label: t("batch.completed", locale) },
+                failed:    { bg: "bg-red-50", ring: "ring-red-200", dot: "bg-red-500", label: t("batch.failed", locale) },
+              }[item.status];
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 ${statusCfg.bg} ring-1 ${statusCfg.ring} transition-all`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${statusCfg.dot}`} />
+                    <span className="text-xs font-bold font-mono text-[var(--text-0)]">{item.ticker}</span>
+                    <span className="text-[10px] text-[var(--text-2)]">{statusCfg.label}</span>
+                    {item.status === "analyzing" && <Loader2 className="w-3 h-3 animate-spin text-amber-500" />}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {item.status === "completed" && (
+                      <button
+                        onClick={() => {
+                          const entry = traderHistory.find((e) => e.ticker === item.ticker && e.mode === traderMode);
+                          if (entry) loadTraderHistoryEntry(entry.id);
+                        }}
+                        className="h-7 px-2.5 text-[10px] font-semibold rounded-full bg-white border border-[var(--line-mid)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3 h-3" />
+                        {t("batch.viewResult", locale)}
+                      </button>
+                    )}
+                    {item.status === "failed" && item.error && (
+                      <span className="text-[10px] text-red-600 truncate max-w-[120px]" title={item.error}>{item.error}</span>
+                    )}
+                    {(item.status === "queued" || item.status === "failed") && (
+                      <button
+                        onClick={() => removeFromBatchQueue(item.id)}
+                        className="h-6 w-6 rounded-full flex items-center justify-center text-[var(--text-2)] hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* History panel — collapsible */}
       {showHistory && traderHistory.length > 0 && (

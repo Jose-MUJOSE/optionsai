@@ -38,22 +38,29 @@ const GROUP_LABELS: Record<"personal" | "indices" | "sectors" | "themes", { zh: 
 
 type DirectionFilter = "all" | "bullish" | "bearish" | "neutral";
 
-export default function PatternScanner() {
-  const { locale, searchTicker } = useAppStore();
+interface PatternScannerProps {
+  /** Open a ticker in the Stock Research dashboard (caller controls view switch). */
+  onOpenTicker: (ticker: string) => void;
+}
+
+export default function PatternScanner({ onOpenTicker }: PatternScannerProps) {
+  const { locale } = useAppStore();
   const { items: watchlistItems } = useWatchlist();
   const lang: Locale = locale === "zh" ? "zh" : "en";
 
+  // Scanner state lives in the Zustand store so it survives component
+  // unmount/remount when the user navigates to the dashboard and back.
+  const selectedPatterns        = useAppStore((s) => s.patternScanState.selectedPatterns);
+  const directionFilter         = useAppStore((s) => s.patternScanState.directionFilter);
+  const selectedCategories      = useAppStore((s) => s.patternScanState.selectedCategories);
+  const customTickers           = useAppStore((s) => s.patternScanState.customTickers);
+  const response                = useAppStore((s) => s.patternScanState.response);
+  const showAllPatterns         = useAppStore((s) => s.patternScanState.showAllPatterns);
+  const setPatternScanField     = useAppStore((s) => s.setPatternScanField);
+
   const [catalog, setCatalog] = useState<PatternCatalogItem[]>([]);
-  const [selectedPatterns, setSelectedPatterns] = useState<Set<string>>(new Set());
-  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
-  // Multi-select universe: user can combine several baskets (e.g. Mag7 + Banks)
-  // and the union is scanned, deduplicated, capped at 30 by the backend.
-  const [selectedCategories, setSelectedCategories] = useState<Set<CategoryKey>>(new Set(["mag7"]));
-  const [customTickers, setCustomTickers] = useState<string>("");
-  const [response, setResponse] = useState<PatternScanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAllPatterns, setShowAllPatterns] = useState(false);
 
   // Load catalog once on mount
   useEffect(() => {
@@ -83,44 +90,40 @@ export default function PatternScanner() {
   }, []);
 
   const toggleCategory = useCallback((key: CategoryKey) => {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-        // Don't allow zero categories — that would scan nothing. Force Mag7
-        // back as a fallback so the Run button always has something to do.
-        if (next.size === 0) next.add("mag7");
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, []);
+    const next = new Set(selectedCategories);
+    if (next.has(key)) {
+      next.delete(key);
+      // Don't allow zero categories — that would scan nothing. Force Mag7
+      // back as a fallback so the Run button always has something to do.
+      if (next.size === 0) next.add("mag7");
+    } else {
+      next.add(key);
+    }
+    setPatternScanField({ selectedCategories: next });
+  }, [selectedCategories, setPatternScanField]);
 
   const togglePattern = useCallback((code: string) => {
-    setSelectedPatterns((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  }, []);
+    const next = new Set(selectedPatterns);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    setPatternScanField({ selectedPatterns: next });
+  }, [selectedPatterns, setPatternScanField]);
 
   const handleScan = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setResponse(null);
+    setPatternScanField({ response: null });
     try {
       const patterns = selectedPatterns.size > 0 ? Array.from(selectedPatterns) : null;
       const directions = directionFilter === "all" ? null : [directionFilter];
       const r = await runPatternScanner(universe, patterns, directions);
-      setResponse(r);
+      setPatternScanField({ response: r });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [selectedPatterns, directionFilter, universe]);
+  }, [selectedPatterns, directionFilter, universe, setPatternScanField]);
 
   const visibleCatalog = useMemo(() => {
     if (directionFilter === "all") return catalog;
@@ -164,7 +167,7 @@ export default function PatternScanner() {
             return (
               <button
                 key={key}
-                onClick={() => setDirectionFilter(key as DirectionFilter)}
+                onClick={() => setPatternScanField({ directionFilter: key as DirectionFilter })}
                 className={`px-3 py-1.5 rounded-full font-semibold transition-all cursor-pointer ${
                   active
                     ? key === "bullish" ? "bg-[var(--fin-up)] text-white" :
@@ -193,7 +196,7 @@ export default function PatternScanner() {
             </span>
             {selectedPatterns.size > 0 && (
               <button
-                onClick={() => setSelectedPatterns(new Set())}
+                onClick={() => setPatternScanField({ selectedPatterns: new Set() })}
                 className="text-[10.5px] text-[var(--text-2)] hover:text-[var(--accent-hot)] cursor-pointer"
               >
                 {lang === "zh" ? "清空" : "Clear"}
@@ -254,7 +257,7 @@ export default function PatternScanner() {
           </div>
           {visibleCatalog.length > 12 && (
             <button
-              onClick={() => setShowAllPatterns((v) => !v)}
+              onClick={() => setPatternScanField({ showAllPatterns: !showAllPatterns })}
               className="mt-2 text-[11px] text-[var(--accent-hot)] hover:underline cursor-pointer flex items-center gap-1"
             >
               {showAllPatterns
@@ -325,7 +328,7 @@ export default function PatternScanner() {
             <input
               type="text"
               value={customTickers}
-              onChange={(e) => setCustomTickers(e.target.value)}
+              onChange={(e) => setPatternScanField({ customTickers: e.target.value })}
               placeholder={lang === "zh" ? "如：AAPL, MSFT, NVDA" : "e.g. AAPL, MSFT, NVDA"}
               className="mt-2 w-full px-3 py-2 rounded-lg bg-[var(--bg-1)] border border-[var(--line-mid)] text-sm focus:outline-none focus:border-[var(--accent)]"
             />
@@ -397,7 +400,7 @@ export default function PatternScanner() {
                       <div className="flex items-center gap-3">
                         {directionIcon}
                         <button
-                          onClick={() => searchTicker(r.ticker)}
+                          onClick={() => onOpenTicker(r.ticker)}
                           className="mono text-base font-bold text-[var(--accent-hot)] hover:underline cursor-pointer"
                         >
                           {r.ticker}
@@ -407,7 +410,7 @@ export default function PatternScanner() {
                         </span>
                       </div>
                       <button
-                        onClick={() => searchTicker(r.ticker)}
+                        onClick={() => onOpenTicker(r.ticker)}
                         className="flex items-center gap-1 text-[10.5px] text-[var(--accent-hot)] hover:underline cursor-pointer"
                       >
                         {lang === "zh" ? "打开仪表盘" : "Open Dashboard"}
