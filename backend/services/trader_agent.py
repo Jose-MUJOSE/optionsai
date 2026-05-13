@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import re
 from typing import AsyncGenerator, Literal, Optional
 
 
@@ -1237,26 +1238,75 @@ class TraderAgentPipeline:
                 "actionable_steps": [],
                 "consensus_score": "",
             }
-        return self._parse_json(content)
+
+        parsed = self._parse_json(content)
+
+        # Defensive fallback: if the model returned content but it couldn't be
+        # parsed as JSON, OR the JSON was valid but missing the two fields the
+        # frontend needs, substitute a safe shape so the UI shows a clear
+        # message instead of the literal string "UNDEFINED".
+        if not parsed or "decision" not in parsed or "conviction" not in parsed:
+            _safe_log(
+                f"[trader_agent] Manager JSON malformed or missing decision/conviction. "
+                f"Raw preview: {content[:240]!r}"
+            )
+            return {
+                "decision": "hold",
+                "conviction": 5,
+                "thesis": (
+                    "The Portfolio Manager response could not be parsed as JSON. "
+                    "Defaulting to HOLD. See backend logs for the raw response."
+                ),
+                "debate_summary": "",
+                "key_catalysts": [],
+                "main_risks": [],
+                "synthesis": {},
+                "actionable_steps": [],
+                "consensus_score": "",
+                "_parse_error": True,
+                "_raw_preview": content[:500],
+            }
+
+        return parsed
 
     @staticmethod
     def _parse_json(text: str) -> dict:
-        """Best-effort JSON extraction from a model response."""
+        """Best-effort JSON extraction from a model response.
+
+        Handles three shapes the LLM may return:
+          1. Bare JSON object              ->  {"...": ...}
+          2. Fenced JSON                   ->  ```json\n{...}\n```
+          3. JSON with preamble / suffix   ->  "Here is my answer: {...} hope this helps"
+        Returns {} only if the result is genuinely unparsable — the caller is
+        then responsible for substituting a safe default so the frontend never
+        receives missing decision/conviction fields.
+        """
+        if not text:
+            return {}
         text = text.strip()
-        # Strip optional markdown code fence
-        if text.startswith("```"):
-            text = text.split("```", 2)[-1] if text.count("```") >= 2 else text
-            if text.startswith("json"):
-                text = text[4:]
+
+        # Strip markdown code fences. The previous implementation used
+        # `text.split("```", 2)[-1]` which returns the trailing empty string
+        # whenever both an opening and closing fence are present — that's how
+        # the frontend ended up rendering "UNDEFINED" for the PM decision.
+        if "```" in text:
+            text = re.sub(r"^```(?:json|JSON)?\s*\n?", "", text)
+            text = re.sub(r"\n?\s*```\s*$", "", text)
             text = text.strip()
-        # Find first { and last }
+
+        # Trim any prose around the JSON object by clipping to the outermost braces.
         if "{" in text and "}" in text:
             start = text.find("{")
             end = text.rfind("}")
             text = text[start : end + 1]
+
         try:
             return json.loads(text)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            _safe_log(
+                f"[trader_agent] _parse_json failed ({exc.msg} @ pos {exc.pos}) "
+                f"| preview: {text[:160]!r}"
+            )
             return {}
 
     async def _call_debate_rebuttal(

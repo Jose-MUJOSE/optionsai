@@ -968,6 +968,13 @@ function ManagerCard({
   const optMgr = manager as ManagerOptionsDecision;
 
   const decision = String(manager.decision || "").toLowerCase();
+  // Guard against undefined / null / empty decision so the UI never renders
+  // the literal string "UNDEFINED" — that happens when the backend's JSON
+  // parser returns an empty object (e.g. malformed PM response).
+  const rawLabel =
+    manager.decision == null || manager.decision === ""
+      ? locale === "zh" ? "解析失败" : "Parse Error"
+      : String(manager.decision).toUpperCase();
   const decisionTheme =
     decision === "buy" || decision === "bullish"
       ? { from: "from-emerald-500", to: "to-teal-600", text: "text-white", label: t("trader.decisionBuy", locale) }
@@ -975,7 +982,7 @@ function ManagerCard({
       ? { from: "from-red-500", to: "to-rose-600", text: "text-white", label: t("trader.decisionSell", locale) }
       : decision === "hold" || decision === "neutral"
       ? { from: "from-slate-400", to: "to-slate-500", text: "text-white", label: t("trader.decisionHold", locale) }
-      : { from: "from-violet-500", to: "to-indigo-600", text: "text-white", label: String(manager.decision).toUpperCase() };
+      : { from: "from-violet-500", to: "to-indigo-600", text: "text-white", label: rawLabel };
 
   const synthesis: ManagerSynthesis = manager.synthesis || {};
   const hasSynthesis = Object.values(synthesis).some((v) => typeof v === "string" && v.trim().length > 0);
@@ -1007,7 +1014,9 @@ function ManagerCard({
           >
             <span className="text-sm font-black tracking-wider">{decisionTheme.label}</span>
             <span className="w-px h-4 bg-white/40" />
-            <span className="text-xs font-bold opacity-90 mono">{manager.conviction}/10</span>
+            <span className="text-xs font-bold opacity-90 mono">
+              {typeof manager.conviction === "number" ? manager.conviction : "—"}/10
+            </span>
           </div>
         </div>
 
