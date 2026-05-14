@@ -53,7 +53,10 @@ export default function NewsPanel() {
   const { items } = useWatchlist();
 
   const [tab, setTab] = useState<Tab>("news");
-  const [feedFilter, setFeedFilter] = useState<string>("all"); // ticker filter
+  // Filter starts on the currently-searched ticker so a fresh page load (or a
+  // search performed in another panel) immediately focuses News on that stock
+  // instead of the noisy aggregated "all" feed.
+  const [feedFilter, setFeedFilter] = useState<string>(ticker || "all"); // ticker filter
   const [feedData, setFeedData] = useState<Record<string, FeedEntry>>({});
   const [loadingSet, setLoadingSet] = useState<Set<string>>(new Set());
   // Extra news pages fetched on demand via "Load older news" — keyed by ticker.
@@ -64,6 +67,14 @@ export default function NewsPanel() {
   const NEWS_PAGE_SIZE = 20;
   const [visibleCount, setVisibleCount] = useState<number>(NEWS_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Cross-panel sync: when the user picks a new stock in any other panel
+  // (TickerSearch, Watchlist, etc.) the global `ticker` updates. Mirror that
+  // into the News filter so the feed jumps to the new stock automatically.
+  // The user can still click "All" to override.
+  useEffect(() => {
+    if (ticker) setFeedFilter(ticker);
+  }, [ticker]);
 
   // Build a roster: watchlist + currently viewed ticker + market pulse tickers
   // so the News page always has content to show.
