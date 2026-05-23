@@ -1948,22 +1948,34 @@ class DataFetcher:
         # Build a strike → {call_gamma, call_oi, put_gamma, put_oi, iv_c, iv_p}
         by_strike: dict[float, dict] = {}
 
-        def _extract(row, opt_type: str) -> tuple[float, float, float]:
-            """Returns (strike, gamma_eff, oi)."""
+        def _finite(v) -> bool:
             try:
-                K = float(row.get("strike") or 0)
-                oi = float(row.get("open_interest") or 0)
+                if v is None:
+                    return False
+                f = float(v)
+                return not _math.isnan(f) and not _math.isinf(f)
+            except (TypeError, ValueError):
+                return False
+
+        def _extract(row, opt_type: str) -> tuple[float, float, float]:
+            """Returns (strike, gamma_eff, oi). All values guaranteed finite."""
+            try:
+                K = float(row.get("strike") or 0) if _finite(row.get("strike")) else 0.0
+                oi = float(row.get("open_interest") or 0) if _finite(row.get("open_interest")) else 0.0
                 raw_g = row.get("gamma")
-                raw_iv = row.get("implied_volatility") or 0
-                iv = float(raw_iv) if raw_iv else 0.0
-                if (
-                    raw_g is not None
-                    and not (isinstance(raw_g, float) and (_math.isnan(raw_g) or _math.isinf(raw_g)))
-                    and float(raw_g) != 0.0
-                ):
+                # IV may arrive as percentage (Tradier: 22.33) or decimal (Yahoo/Polygon: 0.2233).
+                # BSM expects decimal; normalize anything > 1.0 by dividing by 100.
+                iv = 0.0
+                raw_iv = row.get("implied_volatility")
+                if _finite(raw_iv):
+                    iv_val = float(raw_iv)
+                    iv = iv_val / 100.0 if iv_val > 1.0 else iv_val
+                if _finite(raw_g) and float(raw_g) != 0.0:
                     g = float(raw_g)
                 else:
                     g = _bsm_gamma(spot, K, T, r, iv)
+                if not _finite(g):
+                    g = 0.0
                 return K, g, oi
             except Exception:
                 return 0.0, 0.0, 0.0
@@ -2009,6 +2021,18 @@ class DataFetcher:
         SHARES_PER_CONTRACT = 100.0
         scale = SHARES_PER_CONTRACT * (spot ** 2) * 0.01 / 1_000_000.0
 
+        def _safe_round(v: float, digits: int) -> float:
+            """Round a value, defaulting NaN/Inf to 0 so the response stays JSON-safe."""
+            try:
+                if v is None:
+                    return 0.0
+                f = float(v)
+                if _math.isnan(f) or _math.isinf(f):
+                    return 0.0
+                return round(f, digits)
+            except (TypeError, ValueError):
+                return 0.0
+
         rows: list[dict] = []
         for K in sorted(by_strike.keys()):
             e = by_strike[K]
@@ -2017,10 +2041,10 @@ class DataFetcher:
             net_gex = call_gex + put_gex
             rows.append(
                 {
-                    "strike": round(K, 2),
-                    "call_gex_millions": round(call_gex, 3),
-                    "put_gex_millions": round(put_gex, 3),
-                    "net_gex_millions": round(net_gex, 3),
+                    "strike": _safe_round(K, 2),
+                    "call_gex_millions": _safe_round(call_gex, 3),
+                    "put_gex_millions": _safe_round(put_gex, 3),
+                    "net_gex_millions": _safe_round(net_gex, 3),
                     "call_oi": int(e["call_oi"]),
                     "put_oi": int(e["put_oi"]),
                 }
@@ -2045,11 +2069,11 @@ class DataFetcher:
             "ticker": ticker,
             "expiration": expiration,
             "dte": dte,
-            "spot_price": round(spot, 2),
-            "net_gex_millions": round(total_net, 2),
-            "call_gex_millions": round(total_call, 2),
-            "put_gex_millions": round(total_put, 2),
-            "gamma_flip_strike": gamma_flip_strike,
+            "spot_price": _safe_round(spot, 2),
+            "net_gex_millions": _safe_round(total_net, 2),
+            "call_gex_millions": _safe_round(total_call, 2),
+            "put_gex_millions": _safe_round(total_put, 2),
+            "gamma_flip_strike": _safe_round(gamma_flip_strike, 2) if gamma_flip_strike is not None else None,
             "by_strike": rows,
             "disclaimer": (
                 "GEX 基于业内惯例: 假设经销商净空 calls, 净多 puts。"

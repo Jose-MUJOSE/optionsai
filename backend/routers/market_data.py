@@ -4,6 +4,7 @@ GET /api/market-data/{ticker} — 实时行情+环境感知
 GET /api/expirations/{ticker} — 可用到期日列表
 GET /api/options-chain/{ticker} — 指定到期日的完整期权链
 """
+import math
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from backend.models.schemas import MarketData, OptionsChain, OptionContract, OptionType
@@ -474,6 +475,27 @@ async def get_options_chain(ticker: str, expiration: str):
 
             return win_prob, be, delta, gamma, theta, vega
 
+        def _valid_finite(v) -> bool:
+            """Non-null, non-NaN, non-Inf numeric — safe for JSON serialization."""
+            try:
+                if v is None:
+                    return False
+                f = float(v)
+                return not math.isnan(f) and not math.isinf(f)
+            except (TypeError, ValueError):
+                return False
+
+        def _safe_float(v, default: float = 0.0) -> float:
+            """Coerce to a JSON-safe finite float, falling back to default for NaN/Inf/None.
+            Polygon and Yahoo return NaN for sparse rows (deep OTM, low-volume strikes);
+            JSON spec forbids NaN/Inf, so leaking these into a Pydantic float field
+            crashes uvicorn's serializer with a generic 500 — invisible to the user."""
+            return float(v) if _valid_finite(v) else default
+
+        def _safe_optional(v):
+            """Same as _safe_float but preserves None for Optional[float] fields."""
+            return float(v) if _valid_finite(v) else None
+
         def df_to_contracts(df, opt_type: OptionType):
             if df.empty:
                 return []
@@ -487,37 +509,27 @@ async def get_options_chain(ticker: str, expiration: str):
                 raw_theta = row.get("theta")
                 raw_vega = row.get("vega")
 
-                def _valid_greek(v):
-                    """Return True if v is a usable non-null, non-NaN numeric value"""
-                    try:
-                        if v is None:
-                            return False
-                        f = float(v)
-                        return not math.isnan(f) and not math.isinf(f)
-                    except (TypeError, ValueError):
-                        return False
-
-                final_delta = float(raw_delta) if _valid_greek(raw_delta) else bsm_delta
-                final_gamma = float(raw_gamma) if _valid_greek(raw_gamma) else bsm_gamma
-                final_theta = float(raw_theta) if _valid_greek(raw_theta) else bsm_theta
-                final_vega = float(raw_vega) if _valid_greek(raw_vega) else bsm_vega
+                final_delta = float(raw_delta) if _valid_finite(raw_delta) else bsm_delta
+                final_gamma = float(raw_gamma) if _valid_finite(raw_gamma) else bsm_gamma
+                final_theta = float(raw_theta) if _valid_finite(raw_theta) else bsm_theta
+                final_vega = float(raw_vega) if _valid_finite(raw_vega) else bsm_vega
 
                 contracts.append(OptionContract(
-                    strike=row["strike"],
-                    last_price=row.get("last_price", 0),
-                    bid=row.get("bid", 0),
-                    ask=row.get("ask", 0),
-                    mid_price=row.get("mid_price", 0),
-                    implied_volatility=row.get("implied_volatility", 0) or 0,
-                    volume=int(row.get("volume", 0)),
-                    open_interest=int(row.get("open_interest", 0)),
-                    delta=final_delta,
-                    gamma=final_gamma,
-                    theta=final_theta,
-                    vega=final_vega,
+                    strike=_safe_float(row.get("strike")),
+                    last_price=_safe_float(row.get("last_price")),
+                    bid=_safe_float(row.get("bid")),
+                    ask=_safe_float(row.get("ask")),
+                    mid_price=_safe_float(row.get("mid_price")),
+                    implied_volatility=_safe_float(row.get("implied_volatility")),
+                    volume=int(_safe_float(row.get("volume"))),
+                    open_interest=int(_safe_float(row.get("open_interest"))),
+                    delta=_safe_optional(final_delta),
+                    gamma=_safe_optional(final_gamma),
+                    theta=_safe_optional(final_theta),
+                    vega=_safe_optional(final_vega),
                     option_type=opt_type,
-                    win_probability=win_prob,
-                    breakeven=be,
+                    win_probability=_safe_optional(win_prob),
+                    breakeven=_safe_optional(be),
                 ))
             return contracts
 
@@ -622,13 +634,25 @@ async def get_unusual_flow(ticker: str, expiration: str = ""):
         spot = float(spot_data.get("spot_price") or 0)
         dte = int(chain.get("dte", 0))
 
+        def _safe_num(v, default: float = 0.0) -> float:
+            """Coerce raw chain numerics to finite floats; NaN/Inf break JSON serialization."""
+            try:
+                if v is None:
+                    return default
+                f = float(v)
+                if math.isnan(f) or math.isinf(f):
+                    return default
+                return f
+            except (TypeError, ValueError):
+                return default
+
         def _classify(row, opt_type: str):
             try:
-                vol = int(row.get("volume") or 0)
-                oi = int(row.get("open_interest") or 0)
-                strike = float(row.get("strike") or 0)
-                mid = float(row.get("mid_price") or 0) or float(row.get("last_price") or 0)
-                iv = float(row.get("implied_volatility") or 0)
+                vol = int(_safe_num(row.get("volume")))
+                oi = int(_safe_num(row.get("open_interest")))
+                strike = _safe_num(row.get("strike"))
+                mid = _safe_num(row.get("mid_price")) or _safe_num(row.get("last_price"))
+                iv = _safe_num(row.get("implied_volatility"))
                 if vol <= 0 or strike <= 0:
                     return None
                 vol_oi_ratio = vol / oi if oi > 0 else float("inf")
@@ -918,20 +942,30 @@ async def run_backtest_endpoint(ticker: str, body: dict):
 
     请求体:
       {
-        "strategy_type": "long_call" | "long_put" | "short_call" | "short_put" |
-                         "bull_call_spread" | "bear_put_spread" |
-                         "long_straddle" | "short_strangle",
-        "entry_date": "YYYY-MM-DD" | null (null = 6 个月前),
-        "dte_days": 30 (期权剩余天数),
-        "hold_days": 30 (持仓天数, 可选)
+        "strategy_type": "long_call" | ... | "short_strangle" (built-in templates,
+                         strikes selected automatically as ATM / ATM±width),
+        "entry_date": "YYYY-MM-DD" | null  (null = ~6 months ago),
+        "dte_days": 30,                    (期权剩余天数, 与 custom_legs 互斥)
+        "hold_days": 30,                   (持仓天数, 可选)
+
+        # --- NEW: backtest the actual strikes from a generated strategy ---
+        "custom_legs": [
+          {"action": "buy"|"sell", "opt_type": "call"|"put",
+           "strike": 310, "quantity": 1},
+          ...
+        ],
+        "expiration": "YYYY-MM-DD"  (传入时按真实 dte = exp - entry_date 计算,
+                                     覆盖 dte_days)
       }
 
     数据诚实性:
       - 股价回放 100% 真实 (Yahoo OHLCV)
       - 期权定价为 BSM 理论价, 明确标注 "theoretical" 而非历史成交价
       - σ 使用滚动 30-day 真实已实现波动率
+      - 当传入 custom_legs 时, 行权价直接来自上方生成的策略,
+        所以回测结果与"推荐策略"一一对应
     """
-    from backend.services.backtest_engine import run_backtest
+    from backend.services.backtest_engine import run_backtest, StrategyLeg
     import pandas as pd
     from dataclasses import asdict
 
@@ -945,6 +979,25 @@ async def run_backtest_endpoint(ticker: str, body: dict):
     # Transaction-cost params — defaults match retail brokers (~0.5% B/A spread + $0.65/contract)
     transaction_cost_pct = float(body.get("transaction_cost_pct", 0.005))
     fixed_commission_per_contract = float(body.get("fixed_commission_per_contract", 1.30))
+
+    # Parse optional custom legs from a generated strategy. Accepts both
+    # uppercase (frontend Strategy schema: "BUY"/"CALL") and lowercase forms.
+    custom_legs_raw = body.get("custom_legs")
+    custom_legs: Optional[list[StrategyLeg]] = None
+    if isinstance(custom_legs_raw, list) and custom_legs_raw:
+        parsed: list[StrategyLeg] = []
+        for leg in custom_legs_raw:
+            try:
+                action = str(leg.get("action", "")).strip().lower()
+                opt_type = str(leg.get("opt_type") or leg.get("option_type") or "").strip().lower()
+                strike = float(leg.get("strike") or 0)
+                qty = int(leg.get("quantity") or 1)
+                if action not in {"buy", "sell"} or opt_type not in {"call", "put"} or strike <= 0:
+                    raise HTTPException(status_code=400, detail=f"Invalid leg: {leg}")
+                parsed.append(StrategyLeg(action=action, opt_type=opt_type, strike=strike, quantity=qty))
+            except (TypeError, ValueError) as e:
+                raise HTTPException(status_code=400, detail=f"Invalid leg format: {e}")
+        custom_legs = parsed
 
     # 1) 拉 2 年 OHLCV (足够 30+entry 前置 HV 计算)
     try:
@@ -965,6 +1018,18 @@ async def run_backtest_endpoint(ticker: str, body: dict):
         target_idx = max(31, len(dates) - 126)
         entry_date = dates[target_idx]
 
+    # 3) 若提供了 expiration, 用真实日历天数覆盖 dte_days
+    expiration = body.get("expiration")
+    if expiration:
+        try:
+            exp_d = datetime.strptime(str(expiration), "%Y-%m-%d").date()
+            ent_d = datetime.strptime(str(entry_date), "%Y-%m-%d").date()
+            calendar_dte = (exp_d - ent_d).days
+            if calendar_dte > 0:
+                dte_days = calendar_dte
+        except ValueError:
+            pass  # silently fall back to user-supplied dte_days
+
     try:
         result = run_backtest(
             ticker=ticker,
@@ -976,6 +1041,7 @@ async def run_backtest_endpoint(ticker: str, body: dict):
             hold_days=hold_days,
             transaction_cost_pct=transaction_cost_pct,
             fixed_commission_per_contract=fixed_commission_per_contract,
+            custom_legs=custom_legs,
         )
         return asdict(result)
     except ValueError as e:

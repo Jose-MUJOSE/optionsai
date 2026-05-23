@@ -813,10 +813,16 @@ export interface BacktestResponse {
 export async function runBacktest(
   ticker: string,
   body: {
-    strategy_type: BacktestStrategy;
+    strategy_type: BacktestStrategy | string;
     entry_date?: string | null;
     dte_days?: number;
     hold_days?: number | null;
+    /** Optional — backtest the exact legs from a generated strategy
+     *  (instead of the engine's built-in ATM strike picker). */
+    custom_legs?: BacktestLeg[];
+    /** Optional — when given together with custom_legs, dte is computed
+     *  as (expiration - entry_date) in calendar days. */
+    expiration?: string;
   }
 ): Promise<BacktestResponse> {
   const res = await fetch(`${API_URL}/api/backtest/${ticker}`, {

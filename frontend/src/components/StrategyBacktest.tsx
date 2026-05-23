@@ -9,7 +9,10 @@
  *   - σ: 滚动 30 日真实已实现波动率
  *   - r: 4.5% (T-bill 近似假设)
  *
- * 禁止: 伪造历史期权成交价、隐藏 BSM 假设
+ * 联动逻辑 (v2):
+ *   - 当上方 Strategy Cards 已生成策略且用户选中其中一个时, 回测默认锁定到该策略,
+ *     使用真实行权价 / 腿组合 / 到期日, 而不是空泡 ATM 模板。
+ *   - 用户可切换到 "Manual" 模式继续自由探索单腿/价差模板。
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,12 +26,19 @@ import {
   CartesianGrid,
   ReferenceLine,
 } from "recharts";
-import { PlayCircle, Loader2, TrendingUp, TrendingDown, Plus, Info } from "lucide-react";
+import { PlayCircle, Loader2, TrendingUp, TrendingDown, Plus, Info, Link2, Sliders } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import FeatureGuide from "./FeatureGuide";
-import { runBacktest, type BacktestResponse, type BacktestStrategy, type BacktestMetrics } from "@/lib/api";
+import {
+  runBacktest,
+  type BacktestResponse,
+  type BacktestStrategy,
+  type BacktestMetrics,
+  type BacktestLeg,
+} from "@/lib/api";
 import { addPaperPosition } from "@/lib/paperPortfolio";
+import type { Strategy } from "@/types";
 
 const STRATEGIES: { value: BacktestStrategy; zh: string; en: string }[] = [
   { value: "long_call", zh: "买入看涨 (Long Call)", en: "Long Call" },
@@ -44,10 +54,40 @@ const STRATEGIES: { value: BacktestStrategy; zh: string; en: string }[] = [
 const DTE_CHOICES = [7, 14, 30, 45, 60, 90];
 const HOLD_PERCENT_CHOICES = [25, 50, 75, 100];
 
-export default function StrategyBacktest() {
-  const { marketData, locale } = useAppStore();
-  const ticker = marketData?.ticker ?? null;
+/** Map a generated strategy's legs (uppercase BUY/CALL) → backtest leg schema. */
+function strategyToBacktestLegs(s: Strategy): BacktestLeg[] {
+  return s.legs.map((leg) => ({
+    action: leg.action === "BUY" ? "buy" : "sell",
+    opt_type: leg.option_type === "CALL" ? "call" : "put",
+    strike: leg.strike,
+    quantity: leg.quantity || 1,
+  }));
+}
 
+/** Calendar DTE between two ISO dates (positive when exp > entry). */
+function calendarDte(entryISO: string, expISO: string): number {
+  const entry = new Date(entryISO).getTime();
+  const exp = new Date(expISO).getTime();
+  if (!Number.isFinite(entry) || !Number.isFinite(exp)) return 30;
+  const days = Math.round((exp - entry) / 86400000);
+  return Math.max(1, days);
+}
+
+export default function StrategyBacktest() {
+  const { marketData, locale, strategies, selectedStrategyIndex } = useAppStore();
+  const ticker = marketData?.ticker ?? null;
+  const selectedGenerated: Strategy | null =
+    strategies.length > 0 ? strategies[selectedStrategyIndex] ?? strategies[0] : null;
+
+  /**
+   * Source of truth for the backtest input:
+   *   "generated" → backtest the exact legs of the currently-selected
+   *                 Strategy Card (real strikes, real expiration).
+   *   "manual"    → freely pick one of the built-in ATM templates.
+   * Defaults to "generated" whenever a strategy exists upstream so the
+   * user gets a relevant backtest by default.
+   */
+  const [source, setSource] = useState<"generated" | "manual">("generated");
   const [strategy, setStrategy] = useState<BacktestStrategy>("long_call");
   const [dte, setDte] = useState(30);
   const [holdPct, setHoldPct] = useState(100);
@@ -56,19 +96,49 @@ export default function StrategyBacktest() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-flip back to "generated" the moment new strategies show up, so the
+  // first run after clicking "Generate Strategies" reflects what the user sees.
+  useEffect(() => {
+    if (selectedGenerated) setSource("generated");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGenerated?.strategy_type, selectedGenerated?.legs.length, selectedStrategyIndex]);
+
+  const generatedDte = useMemo(() => {
+    const expISO = selectedGenerated?.legs[0]?.expiration;
+    if (!expISO) return 30;
+    return calendarDte(entryDate || new Date().toISOString().slice(0, 10), expISO);
+  }, [selectedGenerated, entryDate]);
+
   const run = async () => {
     if (!ticker) return;
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const holdDays = Math.max(1, Math.floor((dte * holdPct) / 100));
-      const r = await runBacktest(ticker, {
-        strategy_type: strategy,
-        entry_date: entryDate || null,
-        dte_days: dte,
-        hold_days: holdDays,
-      });
+      let r: BacktestResponse;
+      if (source === "generated" && selectedGenerated) {
+        // Use the exact generated strategy: real strikes, real expiration.
+        // hold_days is capped at the real DTE so we never extrapolate past
+        // the contract's expiry.
+        const realDte = generatedDte;
+        const holdDays = Math.max(1, Math.floor((realDte * holdPct) / 100));
+        r = await runBacktest(ticker, {
+          strategy_type: selectedGenerated.strategy_type,
+          entry_date: entryDate || null,
+          dte_days: realDte,
+          hold_days: holdDays,
+          custom_legs: strategyToBacktestLegs(selectedGenerated),
+          expiration: selectedGenerated.legs[0]?.expiration,
+        });
+      } else {
+        const holdDays = Math.max(1, Math.floor((dte * holdPct) / 100));
+        r = await runBacktest(ticker, {
+          strategy_type: strategy,
+          entry_date: entryDate || null,
+          dte_days: dte,
+          hold_days: holdDays,
+        });
+      }
       setResult(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -120,16 +190,90 @@ export default function StrategyBacktest() {
         </span>
       </div>
 
+      {/* Source toggle — generated vs manual */}
+      {selectedGenerated && (
+        <div className="mb-4 flex items-center gap-2 p-1 bg-[var(--bg-2)] rounded-xl border border-[var(--line-soft)] w-fit">
+          <button
+            type="button"
+            onClick={() => setSource("generated")}
+            className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              source === "generated"
+                ? "bg-white text-[var(--accent-hot)] shadow-sm border border-[var(--accent-soft)]"
+                : "text-[var(--text-2)] hover:text-[var(--text-1)]"
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            {locale === "zh" ? "回测推荐策略" : "Use selected strategy"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSource("manual")}
+            className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              source === "manual"
+                ? "bg-white text-[var(--accent-hot)] shadow-sm border border-[var(--accent-soft)]"
+                : "text-[var(--text-2)] hover:text-[var(--text-1)]"
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            {locale === "zh" ? "手动模板" : "Manual template"}
+          </button>
+        </div>
+      )}
+
+      {/* Locked banner — shows the exact generated strategy we're about to backtest */}
+      {source === "generated" && selectedGenerated && (
+        <div className="mb-4 rounded-xl border border-[var(--accent-soft)] bg-gradient-to-br from-[var(--accent-soft)] to-white px-4 py-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--accent-hot)] mb-1">
+                {locale === "zh" ? "锁定推荐策略" : "Locked to recommended strategy"}
+              </div>
+              <div className="text-sm font-bold text-[var(--text-0)]">
+                {locale === "zh" ? selectedGenerated.name : selectedGenerated.name_en}
+                <span className="ml-2 text-xs font-normal text-[var(--text-2)]">
+                  · {selectedGenerated.legs.length}{locale === "zh" ? " 腿" : " leg(s)"}
+                </span>
+              </div>
+              <div className="text-[11px] text-[var(--text-1)] mt-1 font-mono leading-relaxed">
+                {selectedGenerated.legs.map((l, i) => (
+                  <span key={i}>
+                    {i > 0 && " + "}
+                    <span className={l.action === "BUY" ? "text-[var(--fin-up)] font-semibold" : "text-[var(--fin-down)] font-semibold"}>
+                      {l.action === "BUY" ? "+" : "-"}{l.quantity}
+                    </span>
+                    {" "}${l.strike} {l.option_type}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="text-right text-[11px] text-[var(--text-2)]">
+              {selectedGenerated.legs[0]?.expiration && (
+                <div>
+                  <span className="font-semibold text-[var(--text-1)]">
+                    {locale === "zh" ? "到期" : "Exp"}:
+                  </span>{" "}
+                  {selectedGenerated.legs[0].expiration}
+                </div>
+              )}
+              <div>
+                <span className="font-semibold text-[var(--text-1)]">DTE:</span> {generatedDte}d
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-        <label className="flex flex-col gap-1 col-span-2">
+        <label className={`flex flex-col gap-1 col-span-2 ${source === "generated" && selectedGenerated ? "opacity-40 pointer-events-none" : ""}`}>
           <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--text-2)]">
             {locale === "zh" ? "策略类型" : "Strategy"}
           </span>
           <select
             value={strategy}
             onChange={(e) => setStrategy(e.target.value as BacktestStrategy)}
-            className="h-9 px-2.5 rounded-lg border border-[var(--line-soft)] bg-white text-sm focus:outline-none focus:border-[var(--accent)]"
+            disabled={source === "generated" && !!selectedGenerated}
+            className="h-9 px-2.5 rounded-lg border border-[var(--line-soft)] bg-white text-sm focus:outline-none focus:border-[var(--accent)] disabled:bg-gray-50"
           >
             {STRATEGIES.map((s) => (
               <option key={s.value} value={s.value}>
@@ -139,15 +283,20 @@ export default function StrategyBacktest() {
           </select>
         </label>
 
-        <label className="flex flex-col gap-1">
+        <label className={`flex flex-col gap-1 ${source === "generated" && selectedGenerated ? "opacity-40 pointer-events-none" : ""}`}>
           <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--text-2)]">
             DTE
           </span>
           <select
-            value={dte}
+            value={source === "generated" && selectedGenerated ? generatedDte : dte}
             onChange={(e) => setDte(Number(e.target.value))}
-            className="h-9 px-2.5 rounded-lg border border-[var(--line-soft)] bg-white text-sm focus:outline-none focus:border-[var(--accent)]"
+            disabled={source === "generated" && !!selectedGenerated}
+            className="h-9 px-2.5 rounded-lg border border-[var(--line-soft)] bg-white text-sm focus:outline-none focus:border-[var(--accent)] disabled:bg-gray-50"
           >
+            {/* When locked to generated strategy, show the real DTE even if it's not in our preset list */}
+            {source === "generated" && selectedGenerated && !DTE_CHOICES.includes(generatedDte) && (
+              <option value={generatedDte}>{generatedDte}d</option>
+            )}
             {DTE_CHOICES.map((d) => (
               <option key={d} value={d}>
                 {d}d
@@ -198,15 +347,17 @@ export default function StrategyBacktest() {
         {result && (
           <button
             onClick={() => {
+              const effectiveStrategy = (result.strategy_type ?? strategy) as BacktestStrategy;
+              const effectiveDte = result.dte_at_entry ?? dte;
               addPaperPosition({
-                id: `${ticker}-${strategy}-${Date.now()}`,
+                id: `${ticker}-${effectiveStrategy}-${Date.now()}`,
                 ticker,
-                strategy_type: strategy,
+                strategy_type: effectiveStrategy,
                 entry_date: result.entry_date,
                 entry_spot: result.initial_spot,
                 entry_price: result.initial_price_per_share,
-                dte_days: dte,
-                hold_days: Math.max(1, Math.floor((dte * holdPct) / 100)),
+                dte_days: effectiveDte,
+                hold_days: Math.max(1, Math.floor((effectiveDte * holdPct) / 100)),
                 legs: result.legs,
                 created_at: new Date().toISOString(),
               });

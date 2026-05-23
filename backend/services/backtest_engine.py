@@ -323,8 +323,9 @@ def run_backtest(
     entry_date: str,
     dte_days: int = 30,          # 进场时期权剩余天数
     hold_days: Optional[int] = None,  # 持仓天数; 默认 min(dte_days, len(available))
-    transaction_cost_pct: float = 0.005,    # 0.5% round-trip (NEW)
-    fixed_commission_per_contract: float = 1.30,  # $0.65 × 2 round trip (NEW)
+    transaction_cost_pct: float = 0.005,    # 0.5% round-trip
+    fixed_commission_per_contract: float = 1.30,  # $0.65 × 2 round trip
+    custom_legs: Optional[list[StrategyLeg]] = None,
 ) -> BacktestResult:
     """
     对给定 ticker 从 entry_date 进场, 持有 hold_days 或到期, 回放真实价格轨迹.
@@ -333,15 +334,21 @@ def run_backtest(
     参数:
       closes      : Yahoo 收盘价 Series (数值索引 0..N-1)
       dates       : 与 closes 对齐的 ISO 日期 (YYYY-MM-DD) 列表
+      custom_legs : 可选 — 直接传入要回测的腿 (action/opt_type/strike/quantity).
+                    用于把"已生成的具体策略"接入回测, 而不是固定 ATM 行权价.
+                    传入时 strategy_type 仅作为标签使用, 任意 legs 组合都能定价
+                    (BSM 对每条腿独立计算, 支持 iron condor、butterfly 等多腿策略).
 
     返回: BacktestResult (含 bars 数组 + 摘要统计)
     """
-    if strategy_type not in {
-        "long_call", "long_put", "short_call", "short_put",
-        "bull_call_spread", "bear_put_spread",
-        "long_straddle", "short_strangle",
-    }:
-        raise ValueError(f"Unsupported strategy: {strategy_type}")
+    if custom_legs is None:
+        # Built-in templates use hardcoded ATM/ATM±width strike selection
+        if strategy_type not in {
+            "long_call", "long_put", "short_call", "short_put",
+            "bull_call_spread", "bear_put_spread",
+            "long_straddle", "short_strangle",
+        }:
+            raise ValueError(f"Unsupported strategy: {strategy_type}")
 
     if len(closes) != len(dates):
         raise ValueError("closes and dates must be same length")
@@ -372,7 +379,10 @@ def run_backtest(
 
     # 5) 进场: 使用 entry_idx 的 spot, dte_days 剩余时间, entry_idx 的 σ
     entry_spot = float(closes.iloc[entry_idx])
-    legs = build_legs(strategy_type, entry_spot)
+    if custom_legs is not None and len(custom_legs) > 0:
+        legs = list(custom_legs)
+    else:
+        legs = build_legs(strategy_type, entry_spot)
     entry_sigma = float(hv_series.iloc[entry_idx])
     if math.isnan(entry_sigma) or entry_sigma <= 0:
         raise ValueError("Invalid HV at entry date (insufficient history)")
@@ -452,7 +462,11 @@ def run_backtest(
             "pricing_model": "Black-Scholes (theoretical)",
             "risk_free_rate": RISK_FREE_RATE,
             "sigma_source": "rolling 30-day realized volatility (annualized)",
-            "strike_selection": "ATM for single-leg; ATM + 5%-wide for spreads",
+            "strike_selection": (
+                "Custom legs from generated strategy"
+                if custom_legs is not None and len(custom_legs) > 0
+                else "ATM for single-leg; ATM + 5%-wide for spreads"
+            ),
             "contract_multiplier": 100,
             "transaction_cost_pct": transaction_cost_pct,
             "fixed_commission_per_contract": fixed_commission_per_contract,
