@@ -1,10 +1,16 @@
 "use client";
 
-import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell, Brain, Sigma, Activity } from "lucide-react";
+import { LayoutDashboard, Star, Newspaper, Target, Settings, FolderOpen, Radar, Bell, Brain, Sigma, Activity, BookOpen, ListChecks, Plus, ChevronDown } from "lucide-react";
+import { useEffect } from "react";
+import { useLocalPreference } from "@/lib/useLocalPreference";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 
 export type AppView =
+  | "workbench"
+  | "tasks"
+  | "reports"
+  | "report"
   | "dashboard"
   | "options"
   | "watchlist"
@@ -21,7 +27,7 @@ interface SidebarProps {
   view: AppView;
   onViewChange: (view: AppView) => void;
   onOpenSettings: () => void;
-  /** Click on the OptionsAI logo — clears ticker and returns to home view. */
+  /** Click on the OptionsAI logo to return to the research desk. */
   onGoHome: () => void;
   /** Current pixel width; parent controls resize state. */
   width: number;
@@ -31,22 +37,31 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
   const { locale, setLocale } = useAppStore();
 
   const compact = width < 190; // collapse labels below this width
+  const [optionsOpen, setOptionsOpen] = useLocalPreference("optionsai.optionsNav.v1", false);
+  useEffect(() => { if (["options", "strategies", "scanner", "paper"].includes(view)) setOptionsOpen(true); }, [view, setOptionsOpen]);
 
-  // Order is intentional: stock research → options research → options strategies
-  // (renamed from "策略" to "期权策略" to make the link explicit) → analyst →
-  // discovery tools → utilities. Strategies lives directly under options
-  // because it builds on the options chain the user just looked at.
-  const items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string; badge?: string }> = [
-    { id: "dashboard",  icon: LayoutDashboard, label: locale === "zh" ? "股票研究" : "Stock Research" },
-    { id: "options",    icon: Sigma,           label: locale === "zh" ? "期权研究" : "Options Research" },
-    { id: "strategies", icon: Target,          label: locale === "zh" ? "期权策略" : "Options Strategies" },
-    { id: "trader",     icon: Brain,           label: t("trader.title",   locale) },
-    { id: "watchlist",  icon: Star,            label: t("nav.watchlist",  locale) },
-    { id: "news",       icon: Newspaper,       label: t("nav.news",       locale) },
-    { id: "paper",      icon: FolderOpen,      label: locale === "zh" ? "模拟仓位" : "Paper" },
-    { id: "scanner",    icon: Radar,           label: locale === "zh" ? "期权策略扫描器" : "Options Scanner" },
-    { id: "patterns",   icon: Activity,        label: locale === "zh" ? "形态选股" : "Patterns" },
-    { id: "alerts",     icon: Bell,            label: locale === "zh" ? "事件提醒" : "Alerts" },
+  // Daily stock workflow first; specialized options tools remain grouped below.
+  const zh = locale === "zh";
+  const groups: Array<{ id: string; label: string; items: Array<{ id: AppView; icon: typeof LayoutDashboard; label: string; badge?: string }> }> = [
+    { id: "research", label: zh ? "股票研究" : "STOCK RESEARCH", items: [
+      { id: "workbench", icon: LayoutDashboard, label: zh ? "研究工作台" : "Research desk" },
+      { id: "trader", icon: Plus, label: zh ? "新建研究" : "New research" },
+      { id: "tasks", icon: ListChecks, label: zh ? "任务中心" : "Task center" },
+      { id: "reports", icon: BookOpen, label: zh ? "报告库与对比" : "Reports & compare" },
+      { id: "dashboard", icon: Brain, label: zh ? "个股行情与研究" : "Stock overview" },
+      { id: "watchlist", icon: Star, label: zh ? "自选股票" : "Watchlist" },
+    ] },
+    { id: "discovery", label: zh ? "发现与跟踪" : "DISCOVER & TRACK", items: [
+      { id: "news", icon: Newspaper, label: zh ? "市场资讯" : "Market news" },
+      { id: "patterns", icon: Activity, label: zh ? "形态选股" : "Patterns" },
+      { id: "alerts", icon: Bell, label: zh ? "事件提醒" : "Event alerts" },
+    ] },
+    { id: "options", label: zh ? "期权工具箱" : "OPTIONS TOOLKIT", items: [
+      { id: "options", icon: Sigma, label: zh ? "期权研究" : "Options research" },
+      { id: "strategies", icon: Target, label: zh ? "期权策略" : "Strategies" },
+      { id: "scanner", icon: Radar, label: zh ? "期权策略扫描器" : "Options scanner" },
+      { id: "paper", icon: FolderOpen, label: zh ? "模拟仓位" : "Paper portfolio" },
+    ] },
   ];
 
   return (
@@ -82,7 +97,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
                 <span className="text-[var(--text-0)]">AI</span>
               </div>
               <div className="text-[9.5px] text-[var(--text-2)] uppercase tracking-[0.18em] mt-0.5 font-semibold truncate">
-                {t("app.subtitle", locale)}
+                {zh ? "股票与期权研究工作台" : "Stocks & options research"}
               </div>
             </div>
           )}
@@ -90,13 +105,17 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
       </button>
 
       {/* Nav items */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {items.map(({ id, icon: Icon, label, badge }) => {
-          const active = view === id;
+      <nav className="flex-1 px-3 py-3 space-y-4 overflow-y-auto" aria-label={zh ? "主导航" : "Main navigation"}>
+        {groups.map(group => <div key={group.id}>
+          {group.id === "options" ? <button aria-expanded={optionsOpen} onClick={() => setOptionsOpen(v => !v)} className="w-full px-3 pb-2 flex items-center justify-between text-[10px] font-semibold tracking-wider text-slate-500" title={group.label}>{compact ? <Sigma size={16} /> : group.label}<ChevronDown size={13} className={optionsOpen ? "rotate-180" : ""} /></button> : !compact && <p className="px-3 pb-2 text-[10px] font-semibold tracking-wider text-slate-400">{group.label}</p>}
+        {(group.id !== "options" || optionsOpen) && group.items.map(({ id, icon: Icon, label, badge }) => {
+          const active = view === id || (id === "reports" && view === "report");
           return (
             <button
               key={id}
               onClick={() => onViewChange(id)}
+              aria-label={label}
+              aria-current={active ? "page" : undefined}
               title={compact ? label : undefined}
               className={`w-full group flex items-center ${compact ? "justify-center" : "gap-3"} px-3 py-2.5 rounded-lg text-sm transition-all duration-150 cursor-pointer relative ${
                 active
@@ -130,7 +149,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
               )}
             </button>
           );
-        })}
+        })}</div>)}
       </nav>
 
       {/* Footer controls */}
@@ -147,6 +166,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
         </button>
         <button
           onClick={onOpenSettings}
+          aria-label={t("settings.title", locale)}
           className={`w-full flex items-center ${compact ? "justify-center" : "gap-3"} px-3 py-2 rounded-lg text-xs text-[var(--text-1)] hover:text-[var(--accent-hot)] hover:bg-[var(--bg-2)] transition-all cursor-pointer`}
         >
           <Settings className="w-4 h-4 text-[var(--text-2)] group-hover:rotate-45 transition-transform shrink-0" strokeWidth={1.9} />
@@ -159,7 +179,7 @@ export default function Sidebar({ view, onViewChange, onOpenSettings, onGoHome, 
               <span className="absolute inset-0 rounded-full bg-[var(--fin-up)] anim-data-pulse" />
               <span className="absolute inset-0 rounded-full bg-[var(--fin-up)]" />
             </span>
-            <span className="truncate">{t("nav.live", locale)}</span>
+            <span className="truncate">{zh ? "本地研究工作台" : "LOCAL RESEARCH DESK"}</span>
           </div>
         )}
       </div>

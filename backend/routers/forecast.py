@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from backend.services.data_fetcher import DataFetcher
-from backend.services.ai_assistant import client, MODEL, build_system_prompt
+from backend.services import ai_assistant
+from backend.services.ai_assistant import build_system_prompt
 from backend.services.ticker_validator import validate_us_ticker
 from backend.models.schemas import (
     ChatContext, MarketData, Strategy, StrategyRequest, StrategyResponse,
@@ -91,8 +92,8 @@ async def _llm_relevance_filter(items: list[dict], ticker: str, locale: str) -> 
         f"Headlines:\n{_json.dumps(titles, ensure_ascii=False)}"
     )
     try:
-        resp = await client.chat.completions.create(
-            model=MODEL,
+        resp = await ai_assistant.client.chat.completions.create(
+            model=ai_assistant.MODEL,
             messages=[
                 {"role": "system", "content": "You are a precise news classifier. Return only valid JSON."},
                 {"role": "user", "content": prompt},
@@ -228,8 +229,8 @@ async def get_market_intel(ticker: str, req: MarketIntelRequest = None):
                 translate_prompt = f"""Translate these English financial news items to Chinese. Keep the same JSON structure.
 Return ONLY valid JSON array, no extra text:
 {news_text}"""
-                resp = await client.chat.completions.create(
-                    model=MODEL,
+                resp = await ai_assistant.client.chat.completions.create(
+                    model=ai_assistant.MODEL,
                     messages=[
                         {"role": "system", "content": "You are a translator. Return only valid JSON."},
                         {"role": "user", "content": translate_prompt},
@@ -463,8 +464,8 @@ Be realistic and data-driven. Use IV and HV to gauge expected price movement ran
 Respond ONLY with valid JSON, no markdown code fences."""
 
     try:
-        response = await client.chat.completions.create(
-            model=MODEL,
+        response = await ai_assistant.client.chat.completions.create(
+            model=ai_assistant.MODEL,
             messages=[
                 {"role": "system", "content": "You are a financial analyst. Respond only in valid JSON format."},
                 {"role": "user", "content": prompt},
@@ -550,8 +551,8 @@ Respond in {lang}. Be specific with numbers. No markdown headers, just flowing t
 
     async def event_generator():
         try:
-            stream = await client.chat.completions.create(
-                model=MODEL,
+            stream = await ai_assistant.client.chat.completions.create(
+                model=ai_assistant.MODEL,
                 messages=[
                     {"role": "system", "content": f"You are a concise options strategist. Respond in {lang}."},
                     {"role": "user", "content": prompt},

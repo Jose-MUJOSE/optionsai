@@ -64,6 +64,17 @@
   --font-mono: var(--font-geist-mono);
 }
 
+.report-markdown p { margin: 0.65rem 0; }
+.report-markdown ul, .report-markdown ol { padding-left: 1.3rem; margin: 0.65rem 0; }
+.report-markdown ul { list-style: disc; }
+.report-markdown ol { list-style: decimal; }
+.report-markdown li { margin: 0.35rem 0; }
+.report-markdown h1, .report-markdown h2, .report-markdown h3 { font-weight: 700; margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+.report-markdown strong { color: #0f172a; font-weight: 600; }
+.report-markdown a { color: #1d4ed8; text-decoration: underline; }
+.report-markdown pre { overflow-x: auto; background: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; }
+.report-markdown blockquote { border-left: 2px solid #bfdbfe; padding-left: 0.75rem; color: #64748b; }
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

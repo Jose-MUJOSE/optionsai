@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from backend.models.schemas import ChatRequest, ChatResponse
 from backend.services.ai_assistant import chat_completion, VisionNotSupportedError
+from backend.services.llm_client import LLMConfigurationError
 from backend.services.agent_orchestrator import run_agent_pipeline
 from backend.services.data_fetcher import DataFetcher
 
@@ -34,6 +35,8 @@ async def chat(req: ChatRequest):
         messages = [_dump_message(m) for m in req.messages]
         reply = await chat_completion(messages, req.context)
         return ChatResponse(reply=reply)
+    except LLMConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
     except VisionNotSupportedError as ve:
         # 422: 客户端需要切换模型，不是服务器错误
         raise HTTPException(status_code=422, detail=f"VISION_UNSUPPORTED: {str(ve)}")
@@ -50,6 +53,11 @@ async def chat_stream(req: ChatRequest):
     AI 投研助手 - SSE 流式响应 (Researcher → Analyst → Verifier 多Agent协作)
     支持 user 消息中的 images (OpenAI-兼容 image_url content blocks)
     """
+    from backend.services import ai_assistant
+    try:
+        ai_assistant.client.require_key()
+    except LLMConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
     messages = [_dump_message(m) for m in req.messages]
 
     async def event_generator():

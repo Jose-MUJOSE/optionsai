@@ -532,6 +532,7 @@ export interface SettingsConfig {
   llm_api_key: string;
   llm_base_url: string;
   llm_model: string;
+  llm_reasoning_effort: string;
   llm_presets?: Record<
     string,
     { base_url: string; model: string; label?: string; signup_url?: string }
@@ -550,9 +551,19 @@ export async function updateSettings(updates: Partial<SettingsConfig>): Promise<
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error("Failed to update settings");
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(typeof error.detail === "string" ? error.detail : "Failed to update settings");
+  }
   const data = await res.json();
   return data.config;
+}
+
+export async function testLLMConnection(): Promise<{ model: string; reasoning_effort: string }> {
+  const res = await fetch(`${API_URL}/api/settings/test`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Connection test failed");
+  return data;
 }
 
 // OHLCV / K-line data
@@ -1114,8 +1125,9 @@ export async function* streamTraderAgent(params: {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminal = false;
 
-  while (true) {
+  try { while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -1125,13 +1137,12 @@ export async function* streamTraderAgent(params: {
       if (!chunk.startsWith("data: ")) continue;
       const payload = chunk.slice(6).trim();
       if (!payload) continue;
-      try {
-        yield JSON.parse(payload) as TraderEvent;
-      } catch {
-        // ignore malformed chunks
-      }
+      const event = JSON.parse(payload) as TraderEvent;
+      if (event.type === "done" || event.type === "error") terminal = true;
+      yield event;
     }
-  }
+  } } finally { await reader.cancel(); reader.releaseLock(); }
+  if (!terminal) throw new Error("分析连接在完成前中断，请重试 / Analysis stream ended before completion.");
 }
 
 /** Generate and download a Word .docx report from completed trader analysis. */

@@ -11,6 +11,8 @@ env/
 dist/
 build/
 .pytest_cache/
+.runtime/
+backend/*.tmp
 
 # Secrets — NEVER commit these
 backend/.env
@@ -38,6 +40,14 @@ Thumbs.db
 # Claude Code IDE settings (may contain API keys in allowed commands)
 .claude/
 backend/data/*.db
+backend/data/research_jobs/
+backend/data/report_chats/
+
+# Personal local acceptance records and report screenshots
+docs/ux-audit-*/
+docs/ux-upgrade-*/
+/*验收*.md
+/使用说明.md
 
 # Local dev artifacts
 _backup_v1_pre_redesign/

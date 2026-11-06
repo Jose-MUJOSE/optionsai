@@ -4,15 +4,21 @@ OptionsAI - 策略回测引擎
 核心原则（数据诚实性）:
   - 股价回放: 100% 真实 Yahoo Finance OHLCV
   - 期权定价: Black-Scholes 理论价 (BSM), 明确标注"理论价"而非历史成交价
-  - 波动率 σ: 使用回放日期前 30 天实际 HV (滚动计算) 作为 BSM 输入
+  - 波动率 σ: 优先使用本地 IV snapshot 库的真实 ATM IV (按日);
+              缺失的日期回退到回放日期前 30 天实际 HV (滚动计算)
   - 无风险利率 r: 固定 4.5% (T-bill 近似), 作为假设明确标注
   - 绝不声称这是"历史期权成交价"
 
-支持的策略（单腿 + 两腿）:
-  - long_call / long_put
-  - short_call / short_put
-  - bull_call_spread / bear_put_spread
-  - 更复杂策略(iron condor 等)需两腿之外数据, 暂不支持, 明确返回错误
+支持的策略:
+  单腿:   long_call / long_put / short_call / short_put
+  两腿:   bull_call_spread / bear_put_spread / long_straddle / short_straddle
+          long_strangle / short_strangle
+  四腿:   iron_condor / iron_butterfly / call_butterfly / put_butterfly
+  任意:   custom_legs (BSM 对每条腿独立定价, 支持任意组合)
+
+提前平仓 (v2):
+  take_profit_pct / stop_loss_pct — 以初始权利金的百分比触发,
+  触发当日即平仓, exit_reason 记录原因。默认关闭 (None) 保持向后兼容。
 """
 from __future__ import annotations
 
@@ -78,13 +84,30 @@ class StrategyLeg:
     quantity: int = 1  # contracts (1 contract = 100 shares)
 
 
+# Built-in templates with automatic ATM / ATM±width strike selection.
+SUPPORTED_STRATEGIES = {
+    # single-leg
+    "long_call", "long_put", "short_call", "short_put",
+    # two-leg
+    "bull_call_spread", "bear_put_spread",
+    "long_straddle", "short_straddle",
+    "long_strangle", "short_strangle",
+    # four-leg (v2)
+    "iron_condor", "iron_butterfly",
+    "call_butterfly", "put_butterfly",
+}
+
+
 # 策略类型 → 构造腿列表
 def build_legs(strategy_type: str, spot: float, width_pct: float = 5.0) -> list[StrategyLeg]:
     """
     根据策略类型, 在给定 spot 下构造腿.
     Strike 选择规则(真实做市惯例):
       - long/short single leg → ATM (最接近 spot)
-      - spreads → ATM + 一档 (width_pct 相对 spot)
+      - spreads / strangles  → ATM ± 一档 (width_pct 相对 spot)
+      - iron condor          → 卖 ATM±1w, 买 ATM±2w (双侧信用价差)
+      - iron butterfly       → 卖 ATM 跨式 + 买 ATM±1w 两翼
+      - call/put butterfly   → 买 1 低K + 卖 2 中K + 买 1 高K
     返回值会在回测入口点 round 到最近整数 strike.
     """
     atm = round(spot)
@@ -113,10 +136,46 @@ def build_legs(strategy_type: str, spot: float, width_pct: float = 5.0) -> list[
             StrategyLeg("buy", "call", atm),
             StrategyLeg("buy", "put", atm),
         ]
+    if strategy_type == "short_straddle":
+        return [
+            StrategyLeg("sell", "call", atm),
+            StrategyLeg("sell", "put", atm),
+        ]
+    if strategy_type == "long_strangle":
+        return [
+            StrategyLeg("buy", "call", atm + width_abs),
+            StrategyLeg("buy", "put", atm - width_abs),
+        ]
     if strategy_type == "short_strangle":
         return [
             StrategyLeg("sell", "call", atm + width_abs),
             StrategyLeg("sell", "put", atm - width_abs),
+        ]
+    if strategy_type == "iron_condor":
+        return [
+            StrategyLeg("sell", "put", atm - width_abs),
+            StrategyLeg("buy", "put", atm - 2 * width_abs),
+            StrategyLeg("sell", "call", atm + width_abs),
+            StrategyLeg("buy", "call", atm + 2 * width_abs),
+        ]
+    if strategy_type == "iron_butterfly":
+        return [
+            StrategyLeg("sell", "call", atm),
+            StrategyLeg("sell", "put", atm),
+            StrategyLeg("buy", "call", atm + width_abs),
+            StrategyLeg("buy", "put", atm - width_abs),
+        ]
+    if strategy_type == "call_butterfly":
+        return [
+            StrategyLeg("buy", "call", atm - width_abs),
+            StrategyLeg("sell", "call", atm, quantity=2),
+            StrategyLeg("buy", "call", atm + width_abs),
+        ]
+    if strategy_type == "put_butterfly":
+        return [
+            StrategyLeg("buy", "put", atm + width_abs),
+            StrategyLeg("sell", "put", atm, quantity=2),
+            StrategyLeg("buy", "put", atm - width_abs),
         ]
     raise ValueError(f"Unsupported strategy_type: {strategy_type}")
 
@@ -152,7 +211,8 @@ class BacktestBar:
     pnl_per_contract: float   # 相对进场时刻, 每张合约的 P&L (× 100 shares)
     pnl_pct: float            # 相对初始权利金的百分比收益
     days_to_expiry: int
-    sigma: float              # 该日使用的 σ (30D HV)
+    sigma: float              # 该日使用的 σ
+    sigma_source: str = "hv30"  # "iv_snapshot" (真实 ATM IV) 或 "hv30" (HV 回退)
 
 
 @dataclass
@@ -206,9 +266,10 @@ class BacktestResult:
     final_pnl_per_contract: float
     final_pnl_pct: float
     bars: list[dict]
-    metrics: dict                        # ★ NEW: scientific performance metrics
+    metrics: dict                        # scientific performance metrics
     assumptions: dict                    # 明确声明所有假设
     data_sources: dict                   # 明确声明数据来源
+    exit_reason: str = "hold_end"        # "take_profit" | "stop_loss" | "hold_end"
 
 
 def _compute_metrics(
@@ -326,6 +387,9 @@ def run_backtest(
     transaction_cost_pct: float = 0.005,    # 0.5% round-trip
     fixed_commission_per_contract: float = 1.30,  # $0.65 × 2 round trip
     custom_legs: Optional[list[StrategyLeg]] = None,
+    iv_by_date: Optional[dict[str, float]] = None,  # ISO date -> ATM IV (percent)
+    take_profit_pct: Optional[float] = None,  # e.g. 50 = exit at +50% of premium
+    stop_loss_pct: Optional[float] = None,    # e.g. 50 = exit at -50% of premium
 ) -> BacktestResult:
     """
     对给定 ticker 从 entry_date 进场, 持有 hold_days 或到期, 回放真实价格轨迹.
@@ -338,16 +402,17 @@ def run_backtest(
                     用于把"已生成的具体策略"接入回测, 而不是固定 ATM 行权价.
                     传入时 strategy_type 仅作为标签使用, 任意 legs 组合都能定价
                     (BSM 对每条腿独立计算, 支持 iron condor、butterfly 等多腿策略).
+      iv_by_date  : 可选 — {date: ATM IV%} 真实 IV 快照 (iv_snapshot_store).
+                    有快照的日期用真实 IV 定价, 缺失日期回退 30D HV.
+      take_profit_pct / stop_loss_pct :
+                    可选提前平仓规则, 以初始权利金的百分比为阈值.
+                    触发当日按当日理论价平仓, exit_reason 记录原因.
 
     返回: BacktestResult (含 bars 数组 + 摘要统计)
     """
     if custom_legs is None:
         # Built-in templates use hardcoded ATM/ATM±width strike selection
-        if strategy_type not in {
-            "long_call", "long_put", "short_call", "short_put",
-            "bull_call_spread", "bear_put_spread",
-            "long_straddle", "short_strangle",
-        }:
+        if strategy_type not in SUPPORTED_STRATEGIES:
             raise ValueError(f"Unsupported strategy: {strategy_type}")
 
     if len(closes) != len(dates):
@@ -369,8 +434,19 @@ def run_backtest(
     if entry_idx < 30:
         raise ValueError("Need >=30 days of price history before entry for HV calc")
 
-    # 3) 计算滚动 30D HV 作为 σ
+    # 3) 计算滚动 30D HV 作为回退 σ
     hv_series = _rolling_hv(closes, window=30)
+    iv_map = iv_by_date or {}
+
+    def _sigma_for(idx: int, fallback: float) -> tuple[float, str]:
+        """Return (sigma, source) for bar idx — real IV snapshot wins over HV."""
+        snap = iv_map.get(dates[idx])
+        if snap is not None and snap > 0:
+            return float(snap) / 100.0, "iv_snapshot"
+        hv_val = hv_series.iloc[idx]
+        if not math.isnan(hv_val) and hv_val > 0:
+            return float(hv_val), "hv30"
+        return fallback, "hv30"
 
     # 4) 确定持仓结束索引
     if hold_days is None:
@@ -383,35 +459,38 @@ def run_backtest(
         legs = list(custom_legs)
     else:
         legs = build_legs(strategy_type, entry_spot)
-    entry_sigma = float(hv_series.iloc[entry_idx])
-    if math.isnan(entry_sigma) or entry_sigma <= 0:
+
+    hv_entry = float(hv_series.iloc[entry_idx])
+    has_entry_iv = float(iv_map.get(dates[entry_idx]) or 0) > 0
+    if (math.isnan(hv_entry) or hv_entry <= 0) and not has_entry_iv:
         raise ValueError("Invalid HV at entry date (insufficient history)")
+    fallback_sigma = hv_entry if (not math.isnan(hv_entry) and hv_entry > 0) \
+        else float(iv_map[dates[entry_idx]]) / 100.0
+    entry_sigma, _entry_src = _sigma_for(entry_idx, fallback_sigma)
 
     T_entry = dte_days / TRADING_DAYS_PER_YEAR
     initial_price = _portfolio_price(legs, entry_spot, T_entry, RISK_FREE_RATE, entry_sigma)
 
-    # 6) 回放: 每个交易日重算组合理论价
+    # 6) 回放: 每个交易日重算组合理论价 (+ 可选提前平仓)
     bars: list[BacktestBar] = []
     max_pnl = -math.inf
     min_pnl = math.inf
+    exit_reason = "hold_end"
+    iv_bar_count = 0
 
     for i in range(entry_idx, exit_idx + 1):
         days_elapsed = i - entry_idx
         dte_remain = max(dte_days - days_elapsed, 0)
         T = dte_remain / TRADING_DAYS_PER_YEAR
         spot = float(closes.iloc[i])
-        sigma_i = float(hv_series.iloc[i]) if not math.isnan(hv_series.iloc[i]) else entry_sigma
-        if sigma_i <= 0:
-            sigma_i = entry_sigma
+        sigma_i, sigma_source = _sigma_for(i, entry_sigma)
+        if sigma_source == "iv_snapshot":
+            iv_bar_count += 1
 
         price = _portfolio_price(legs, spot, T, RISK_FREE_RATE, sigma_i)
         # P&L per contract (1 contract = 100 shares).
-        # 买入策略: 用初始借记 - 当前价值 ... 不对, 正负号要看方向:
-        # initial_price > 0 (净借记) → pnl = (current_value - initial_price) * 100
-        # initial_price < 0 (净贷记) → pnl = (initial_price - current_value) * 100 实际上:
-        # 对于一个"长仓位", 持有价值变化 = current - entry
-        # 统一为: pnl_per_contract = (current_value - entry_value) * 100, entry_value = initial_price
-        # 但"买入"的初始流水是 -initial_price (付钱), 后续平仓流水是 +current_price
+        # 统一为: pnl_per_contract = (current_value - entry_value) * 100
+        # 买入的初始流水是 -initial_price (付钱), 平仓流水是 +current_price
         # 净 P&L = current_price - initial_price (同号处理净借记/净贷记)
         pnl_per_contract = (price - initial_price) * 100.0
         pnl_pct = 0.0
@@ -429,7 +508,17 @@ def run_backtest(
             pnl_pct=round(pnl_pct, 2),
             days_to_expiry=dte_remain,
             sigma=round(sigma_i, 4),
+            sigma_source=sigma_source,
         ))
+
+        # --- Early-exit rules (skip the entry bar itself) ---
+        if days_elapsed > 0:
+            if take_profit_pct is not None and pnl_pct >= take_profit_pct:
+                exit_reason = "take_profit"
+                break
+            if stop_loss_pct is not None and pnl_pct <= -abs(stop_loss_pct):
+                exit_reason = "stop_loss"
+                break
 
     final_bar = bars[-1]
 
@@ -441,13 +530,24 @@ def run_backtest(
         fixed_commission_per_contract=fixed_commission_per_contract,
     )
 
+    # Honest sigma-source disclosure
+    if iv_bar_count == len(bars):
+        sigma_desc = "real ATM IV snapshots (iv_snapshot_store) for all bars"
+    elif iv_bar_count > 0:
+        sigma_desc = (
+            f"real ATM IV snapshots for {iv_bar_count}/{len(bars)} bars; "
+            "rolling 30-day realized volatility (annualized) for the rest"
+        )
+    else:
+        sigma_desc = "rolling 30-day realized volatility (annualized)"
+
     return BacktestResult(
         ticker=ticker,
         strategy_type=strategy_type,
         entry_date=dates[entry_idx],
-        exit_date=dates[exit_idx],
+        exit_date=final_bar.date,
         initial_spot=round(entry_spot, 4),
-        exit_spot=round(float(closes.iloc[exit_idx]), 4),
+        exit_spot=round(final_bar.spot, 4),
         dte_at_entry=dte_days,
         legs=[asdict(l) for l in legs],
         initial_price_per_share=round(initial_price, 4),
@@ -458,24 +558,32 @@ def run_backtest(
         final_pnl_pct=round(final_bar.pnl_pct, 2),
         bars=[asdict(b) for b in bars],
         metrics=asdict(metrics),
+        exit_reason=exit_reason,
         assumptions={
             "pricing_model": "Black-Scholes (theoretical)",
             "risk_free_rate": RISK_FREE_RATE,
-            "sigma_source": "rolling 30-day realized volatility (annualized)",
+            "sigma_source": sigma_desc,
             "strike_selection": (
                 "Custom legs from generated strategy"
                 if custom_legs is not None and len(custom_legs) > 0
-                else "ATM for single-leg; ATM + 5%-wide for spreads"
+                else "ATM for single-leg; ATM ± 5%-wide for spreads/condors/butterflies"
             ),
             "contract_multiplier": 100,
             "transaction_cost_pct": transaction_cost_pct,
             "fixed_commission_per_contract": fixed_commission_per_contract,
             "annualization_factor": 252,
+            "early_exit_rules": {
+                "take_profit_pct": take_profit_pct,
+                "stop_loss_pct": stop_loss_pct,
+            },
         },
         data_sources={
             "spot_price_history": "Yahoo Finance 1D OHLCV (100% real)",
             "option_prices": "BSM theoretical (NOT historical transaction prices)",
-            "volatility": "Computed from real closes",
+            "volatility": (
+                "Real ATM IV snapshots where recorded locally; "
+                "computed from real closes (30D HV) otherwise"
+            ),
             "disclaimer": "回放的期权价格为 BSM 理论价, 非实际历史成交价。实际交易价格会受到买卖价差、流动性和波动率微笑的影响。",
         },
     )

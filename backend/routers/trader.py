@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 
-from backend.services.ai_assistant import client, MODEL
+from backend.services import ai_assistant
 from backend.services.data_fetcher import DataFetcher
 from backend.services.ticker_validator import validate_us_ticker
 from backend.services.trader_agent import TraderAgentPipeline, RESEARCHER_SPECS
@@ -66,7 +66,13 @@ async def trader_analyze(ticker: str, req: TraderAnalyzeRequest = None):
 
     ticker = _ensure_us_ticker(ticker)
 
-    pipeline = TraderAgentPipeline(client, MODEL, _fetcher)
+    from backend.services.llm_client import LLMConfigurationError
+    try:
+        ai_assistant.client.require_key()
+    except LLMConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+
+    pipeline = TraderAgentPipeline(ai_assistant.client, ai_assistant.MODEL, _fetcher)
 
     async def event_stream():
         async for chunk in pipeline.run(ticker, req.mode, req.locale, req.selected_researchers):

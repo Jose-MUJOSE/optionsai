@@ -8,43 +8,22 @@ import os
 import json
 from typing import Optional, AsyncGenerator
 
-from openai import AsyncOpenAI
-from dotenv import load_dotenv
-
 from backend.models.schemas import ChatContext, Strategy, MarketData
+from backend.services.config_store import get_config
+from backend.services.llm_client import LLMClient
 
-from pathlib import Path
-_env_path = Path(__file__).resolve().parent.parent / ".env"  # backend/.env
-load_dotenv(_env_path, override=True)
-
-# 从配置加载 LLM 设置
-try:
-    from backend.services.config_store import get_config
-    _cfg = get_config()
-    _api_key = _cfg.get("llm_api_key", "") or os.getenv("DEEPSEEK_API_KEY", "")
-    _base_url = _cfg.get("llm_base_url", "") or os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-    MODEL = _cfg.get("llm_model", "") or "deepseek-chat"
-except Exception:
-    _api_key = os.getenv("DEEPSEEK_API_KEY", "")
-    _base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-    MODEL = "deepseek-chat"
-
-print(f"[AI Assistant] base_url={_base_url}, key={_api_key[:8]}...")
-
-client = AsyncOpenAI(
-    api_key=_api_key,
-    base_url=_base_url,
-)
+_cfg = get_config()
+MODEL = _cfg["llm_model"]
+client = LLMClient(_cfg["llm_api_key"], _cfg["llm_base_url"],
+                   _cfg["llm_provider"], _cfg["llm_reasoning_effort"])
 
 
-def reconfigure_client(api_key: str, base_url: str, model: str):
-    """运行时重新配置 LLM 客户端"""
+def reconfigure_client(api_key: str, base_url: str, model: str,
+                       provider: str = "openai", reasoning_effort: str = "high"):
+    """Replace the client even when clearing a key; callers resolve it at request time."""
     global client, MODEL
-    if api_key:
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url or "https://api.deepseek.com/v1")
-    if model:
-        MODEL = model
-    print(f"[AI Assistant] Reconfigured: base_url={base_url}, model={MODEL}")
+    client = LLMClient(api_key, base_url, provider, reasoning_effort)
+    MODEL = model
 
 
 # ============================================================

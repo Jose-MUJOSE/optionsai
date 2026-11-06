@@ -287,7 +287,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   chatMessages: [],
   isChatLoading: false,
-  isChatOpen: true,
+  isChatOpen: false,
 
   forecasts: [],
   isForecastLoading: false,
@@ -313,7 +313,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Always start as "en" to keep SSR and client output identical. The actual
   // user preference is loaded from localStorage by a top-level effect in
   // page.tsx after the first render — this avoids hydration mismatches.
-  locale: "en" as Locale,
+  locale: "zh" as Locale,
 
   ohlcvData: [],
   isOHLCVLoading: false,
@@ -877,6 +877,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setLocale: (locale: Locale) => {
     set({ locale });
+    if (typeof window !== "undefined") window.localStorage.setItem("optionsai.locale.v1", locale);
     // If a trader analysis was run in a different language, clear it —
     // the LLM-generated content is fixed in the old language, so keeping
     // it would show misleading results when the user downloads a report.
@@ -1141,10 +1142,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           set({ traderError: event.message, traderPhase: "error" });
         }
       }
-      // If the stream ended without a "done" event, still mark as done if we have a manager result
-      if (get().traderPhase === "manager" && get().traderManager) {
-        set({ traderPhase: "done" });
-      }
+      // Only the server's final done event can mark a completed analysis.
     } catch (e) {
       set({
         traderError: e instanceof Error ? e.message : String(e),

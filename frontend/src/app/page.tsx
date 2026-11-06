@@ -32,17 +32,21 @@ import AnalystRatingsPanel from "@/components/AnalystRatingsPanel";
 import PatternScanner from "@/components/PatternScanner";
 import MarketNotice from "@/components/MarketNotice";
 import AnimatedBackground from "@/components/AnimatedBackground";
-import Sidebar, { type AppView } from "@/components/Sidebar";
+import Sidebar from "@/components/Sidebar";
 import Watchlist from "@/components/Watchlist";
 import NewsPanel from "@/components/NewsPanel";
-import TraderAgent from "@/components/TraderAgent";
+import NewResearch from "@/components/NewResearch";
+import { ResearchHome, ResearchTasks } from "@/components/ResearchHome";
+import ReportLibrary from "@/components/ReportLibrary";
+import ReportDetail from "@/components/ReportDetail";
+import { useAppNavigation } from "@/lib/useAppNavigation";
 import { useAppStore } from "@/lib/store";
 import { useWatchlist } from "@/lib/watchlist";
 import { t } from "@/lib/i18n";
 
 const LEFT_MIN = 72;
 const LEFT_MAX = 340;
-const LEFT_DEFAULT = 232;
+const LEFT_DEFAULT = 216;
 const LEFT_STORAGE_KEY = "optionsai.leftSidebarWidth.v1";
 
 const RIGHT_MIN = 320;
@@ -59,19 +63,29 @@ function readStoredWidth(key: string, fallback: number): number {
 }
 
 export default function Home() {
-  const { isChatOpen, marketData, locale, searchTicker, goHome, setLocale } = useAppStore();
+  const { isChatOpen, marketData, locale, searchTicker } = useAppStore();
   const { items: watchlistItems, add: addToWatchlist, remove: removeFromWatchlist } = useWatchlist();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [view, setView] = useState<AppView>("dashboard");
+  const { view, reportId, setView, openReport } = useAppNavigation();
+  const isResearchView = ["workbench", "trader", "tasks", "reports", "report"].includes(view);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const saved = localStorage.getItem("optionsai.locale.v1");
+    if (saved === "zh" || saved === "en") useAppStore.setState({ locale: saved });
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setNarrow(media.matches); update(); media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const researchTitle = ({ workbench: ["研究工作台", "Research desk"], trader: ["新建研究", "New research"], tasks: ["任务中心", "Task center"], reports: ["报告库与对比", "Reports & comparison"], report: ["报告详情", "Report detail"] } as Record<string, string[]>)[view]?.[locale === "zh" ? 0 : 1];
+  const sectionTitle = researchTitle || ({ dashboard: ["个股行情与研究", "Stock overview"], options: ["期权研究", "Options research"], strategies: ["期权策略", "Options strategies"], scanner: ["期权策略扫描器", "Options scanner"], paper: ["模拟仓位", "Paper portfolio"], watchlist: ["自选股票", "Watchlist"], news: ["市场资讯", "Market news"], patterns: ["形态选股", "Patterns"], alerts: ["事件提醒", "Event alerts"] } as Record<string, string[]>)[view]?.[locale === "zh" ? 0 : 1];
 
-  // Default language is English. The user can switch via the sidebar toggle
-  // during the session, but every fresh page load starts in English.
 
-  /** Click home/logo: clear ticker AND switch to dashboard view. */
+  useEffect(() => { document.documentElement.lang = locale === "zh" ? "zh-CN" : "en"; }, [locale]);
+
+  /** Return to the research desk while retaining the current stock context. */
   const handleGoHome = useCallback(() => {
-    goHome();
-    setView("dashboard");
-  }, [goHome]);
+    setView("workbench");
+  }, [setView]);
 
   // Two independently resizable sidebars (persisted to localStorage).
   const [leftWidth, setLeftWidth] = useState<number>(LEFT_DEFAULT);
@@ -157,7 +171,7 @@ export default function Home() {
       searchTicker(ticker);
       setView("dashboard");
     },
-    [searchTicker]
+    [searchTicker, setView]
   );
 
   const currentTicker = marketData?.ticker ?? null;
@@ -184,7 +198,7 @@ export default function Home() {
           onViewChange={setView}
           onOpenSettings={() => setSettingsOpen(true)}
           onGoHome={handleGoHome}
-          width={leftWidth}
+          width={narrow ? 72 : leftWidth}
         />
 
         {/* Left resizer */}
@@ -196,8 +210,8 @@ export default function Home() {
         />
 
         {/* Main column */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-8 py-6 space-y-6">
+        <main id="app-main" className="flex-1 min-w-0 overflow-y-auto">
+          <div className="max-w-[1440px] mx-auto px-4 md:px-7 py-6 space-y-6">
             {/* Top bar — split into title row + actions row to avoid overlap on narrow viewports.
                 The title gets dedicated vertical space; actions wrap below cleanly. */}
             <header className="anim-fade-up space-y-3">
@@ -208,8 +222,8 @@ export default function Home() {
                       <span className="absolute inset-0 rounded-full bg-[var(--fin-up)] anim-data-pulse" />
                       <span className="absolute inset-0 rounded-full bg-[var(--fin-up)]" />
                     </span>
-                    {t(`nav.${view}` as "nav.dashboard", locale)}
-                    {marketData && (
+                    {sectionTitle}
+                    {marketData && !isResearchView && (
                       <>
                         <span className="text-[var(--line-mid)]">/</span>
                         <span className="text-[var(--accent)] mono font-bold tracking-wider">
@@ -219,12 +233,12 @@ export default function Home() {
                     )}
                   </div>
                   <h1 className="text-2xl font-bold tracking-tight text-[var(--text-0)] mt-1">
+                    {researchTitle}
                     {view === "dashboard"  && (marketData ? marketData.ticker : (locale === "zh" ? "股票研究" : "Stock Research"))}
                     {view === "options"    && (marketData ? `${marketData.ticker} ${locale === "zh" ? "· 期权" : "· Options"}` : (locale === "zh" ? "期权研究" : "Options Research"))}
                     {view === "watchlist"  && t("watchlist.title", locale)}
                     {view === "news"       && t("news.title", locale)}
                     {view === "strategies" && (locale === "zh" ? "期权策略" : "Options Strategies")}
-                    {view === "trader"     && t("trader.title", locale)}
                     {view === "paper"      && (locale === "zh" ? "模拟仓位" : "Paper Portfolio")}
                     {view === "scanner"    && (locale === "zh" ? "期权策略扫描器" : "Options Strategy Scanner")}
                     {view === "patterns"   && (locale === "zh" ? "形态选股" : "Pattern Scanner")}
@@ -235,7 +249,7 @@ export default function Home() {
                 {/* Action buttons — sit on the right of the title row when there's room,
                     otherwise wrap below thanks to flex-wrap. */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {marketData && (
+                  {marketData && !isResearchView && (
                     <button
                       onClick={handleGoHome}
                       className="h-9 px-3.5 text-xs font-semibold rounded-full flex items-center gap-1.5 transition-all shrink-0 cursor-pointer bg-white border border-[var(--line-mid)] text-[var(--text-1)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:-translate-y-px hover:shadow-sm"
@@ -272,7 +286,7 @@ export default function Home() {
 
               {/* Search row — full-width on its own line so the input has breathing room
                   and never collides with the title or action pills. */}
-              {(view === "dashboard" || view === "options" || view === "strategies" || view === "trader") && (
+              {(view === "dashboard" || view === "options" || view === "strategies") && (
                 <div className="w-full max-w-xl">
                   <TickerSearch showChips={false} />
                 </div>
@@ -332,7 +346,11 @@ export default function Home() {
             )}
 
             {/* VIEW: Trader Agent (Professional Multi-Perspective Analysis) */}
-            {view === "trader" && <TraderAgent />}
+            {view === "workbench" && <ResearchHome onNavigate={setView} onOpen={openReport} />}
+            {view === "trader" && <NewResearch onTasks={() => setView("tasks")} />}
+            {view === "tasks" && <ResearchTasks onOpen={openReport} onNew={() => setView("trader")} />}
+            {view === "reports" && <ReportLibrary onOpen={openReport} />}
+            {view === "report" && <ReportDetail key={reportId} id={reportId} onOpen={openReport} onBack={() => setView("reports")} onMarket={handleOpenTicker} />}
 
             {/* VIEW: Watchlist */}
             {view === "watchlist" && <Watchlist onOpenTicker={handleOpenTicker} />}
@@ -373,7 +391,7 @@ export default function Home() {
         </main>
 
         {/* Resizable AI Chat Sidebar */}
-        {isChatOpen && (
+        {!isResearchView && isChatOpen && (
           <>
             <div
               onMouseDown={startDrag("right")}
@@ -389,7 +407,7 @@ export default function Home() {
             </div>
           </>
         )}
-        {!isChatOpen && <AIChatSidebar />}
+        {!isResearchView && !isChatOpen && <AIChatSidebar />}
 
         <SettingsModal
           isOpen={settingsOpen}
@@ -438,7 +456,7 @@ function EmptyState() {
       </div>
 
       <div className="w-full max-w-xl">
-        <TickerSearch />
+        <p className="text-sm text-slate-500">{locale === "zh" ? "在上方搜索框输入股票代码开始查看。" : "Enter a ticker in the search box above."}</p>
       </div>
     </div>
   );

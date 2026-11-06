@@ -21,7 +21,8 @@ from __future__ import annotations
 from typing import Optional
 from urllib.parse import urlparse
 
-from backend.services.data_fetcher import DataFetcher
+from backend.services.data_fetcher import TTL_FUNDAMENTALS, DataFetcher
+from backend.services.ttl_cache import async_ttl_cache
 
 
 # Modules we need from Yahoo. Asking for them all in one request is much
@@ -84,6 +85,10 @@ def _domain_from_website(website: Optional[str]) -> Optional[str]:
         return None
 
 
+# Cache keyed on ticker only (method=True skips the fetcher arg). Company
+# identity / 18 metrics change slowly — 1h staleness is fine for a profile card.
+# cache_if: failures return {"fetch_error": ...}; retry those instead of caching.
+@async_ttl_cache(TTL_FUNDAMENTALS, method=True, cache_if=lambda r: "fetch_error" not in r)
 async def fetch_company_profile(fetcher: DataFetcher, ticker: str) -> dict:
     """Fetch a unified company profile from Yahoo quoteSummary.
 

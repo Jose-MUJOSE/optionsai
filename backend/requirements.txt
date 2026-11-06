@@ -1,5 +1,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
+# Explicit: services/llm_schemas.py imports pydantic directly (also a fastapi dep)
+pydantic>=2.0
 pandas==2.2.3
 numpy==2.1.1
 # yfinance removed - using direct Yahoo Finance REST API for stability

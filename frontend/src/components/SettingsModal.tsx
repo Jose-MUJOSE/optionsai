@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Check, Loader2 } from "lucide-react";
 import { t } from "@/lib/i18n";
-import { fetchSettings, updateSettings } from "@/lib/api";
+import { fetchSettings, updateSettings, testLLMConnection } from "@/lib/api";
 import type { SettingsConfig } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 
@@ -17,8 +17,8 @@ interface Props {
 // `llm_presets`, but we keep this for the unlikely case the API hasn't
 // returned yet, and to enforce a stable button order.
 const PROVIDER_ORDER: { id: string; label: string }[] = [
-  { id: "deepseek", label: "DeepSeek" },
   { id: "openai", label: "OpenAI" },
+  { id: "deepseek", label: "DeepSeek" },
   { id: "anthropic", label: "Anthropic" },
   { id: "gemini", label: "Google Gemini" },
   { id: "kimi", label: "Kimi" },
@@ -39,14 +39,19 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState("");
 
   useEffect(() => {
     if (isOpen) {
       setLoading(true);
       setSaved(false);
+      setError("");
+      setTestResult("");
       fetchSettings()
         .then((data) => setConfig(data))
-        .catch(() => {})
+        .catch(() => setError("无法加载设置，请确认后端已启动 / Cannot load settings."))
         .finally(() => setLoading(false));
     }
   }, [isOpen]);
@@ -57,6 +62,8 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
     if (!config) return;
     setSaving(true);
     setSaved(false);
+    setError("");
+    setTestResult("");
     try {
       const updated = await updateSettings({
         data_provider: config.data_provider,
@@ -66,12 +73,13 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
         llm_api_key: config.llm_api_key,
         llm_base_url: config.llm_base_url,
         llm_model: config.llm_model,
+        llm_reasoning_effort: config.llm_reasoning_effort || "high",
       });
       setConfig({ ...updated, llm_presets: config.llm_presets });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // ignore
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败 / Save failed");
     } finally {
       setSaving(false);
     }
@@ -86,6 +94,7 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
     setConfig({
       ...config,
       llm_provider: provider,
+      llm_api_key: provider === config.llm_provider ? config.llm_api_key : "",
       llm_base_url: provider === "custom" ? config.llm_base_url : preset?.base_url ?? "",
       llm_model: provider === "custom" ? config.llm_model : preset?.model ?? "",
     });
@@ -124,6 +133,7 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
           </button>
         </div>
 
+        {error && <p role="alert" className="mx-6 mt-3 text-sm text-red-600">{error}</p>}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
@@ -240,7 +250,7 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
                 type="text"
                 value={config.llm_base_url}
                 onChange={(e) => setConfig({ ...config, llm_base_url: e.target.value })}
-                placeholder="https://api.deepseek.com/v1"
+                placeholder="https://api.openai.com/v1"
                 className={inputClass}
               />
             </div>
@@ -252,10 +262,27 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
                 type="text"
                 value={config.llm_model}
                 onChange={(e) => setConfig({ ...config, llm_model: e.target.value })}
-                placeholder="deepseek-chat"
+                placeholder="gpt-6.1-terra"
                 className={inputClass}
               />
             </div>
+
+            {config.llm_provider === "openai" && (
+              <div>
+                <label className={labelClass}>{locale === "zh" ? "推理强度" : "Reasoning effort"}</label>
+                <select className={inputClass} value={config.llm_reasoning_effort || "high"}
+                  onChange={(e) => setConfig({ ...config, llm_reasoning_effort: e.target.value })}>
+                  <option value="low">Low / 低</option>
+                  <option value="medium">Medium / 中</option>
+                  <option value="high">High / 高</option>
+                  <option value="xhigh">XHigh / 更高</option>
+                  <option value="max">Max / 最高</option>
+                </select>
+                <p className="mt-2 text-xs text-gray-500">{locale === "zh"
+                  ? "默认 GPT-6.1 Terra · High。Key 仅保存在本机后端。先保存，再测试连接；测试会产生少量 API 费用。"
+                  : "Default: GPT-6.1 Terra · High. Keys stay in the local backend. Save before testing; the test incurs a small API charge."}</p>
+              </div>
+            )}
 
             {/* Save Button */}
             <button
@@ -277,6 +304,18 @@ export default function SettingsModal({ isOpen, onClose, locale }: Props) {
                 t("settings.save", locale)
               )}
             </button>
+            <button disabled={testing || saving} className="w-full py-2 border border-blue-200 rounded-xl text-blue-700 disabled:opacity-50"
+              onClick={async () => {
+                setTesting(true); setError(""); setTestResult("");
+                try {
+                  const result = await testLLMConnection();
+                  setTestResult(`${locale === "zh" ? "连接成功" : "Connected"}: ${result.model} · ${result.reasoning_effort}`);
+                } catch (err) { setError(err instanceof Error ? err.message : "Connection failed"); }
+                finally { setTesting(false); }
+              }}>
+              {testing ? (locale === "zh" ? "正在测试…" : "Testing…") : (locale === "zh" ? "测试已保存的配置" : "Test saved configuration")}
+            </button>
+            {testResult && <p role="status" className="text-sm text-green-700">{testResult}</p>}
           </div>
         ) : null}
       </div>

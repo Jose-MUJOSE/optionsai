@@ -782,7 +782,7 @@ function PhaseIndicator(props: { phase: string; researchersDone: number; totalCo
   );
 }
 
-function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; locale: "zh" | "en" }) {
+export function ResearcherCard({ researcher, locale }: { researcher: ResearcherResult; locale: "zh" | "en" }) {
   const [expanded, setExpanded] = useState(false);
   // Defensively coerce — older saved analyses or transient LLM failures may
   // produce results without a stance string; never let this crash the card.
@@ -954,7 +954,7 @@ function ResearcherSkeleton({ id, locale }: { id: string; locale: "zh" | "en" })
   );
 }
 
-function ManagerCard({
+export function ManagerCard({
   manager,
   mode,
   locale,

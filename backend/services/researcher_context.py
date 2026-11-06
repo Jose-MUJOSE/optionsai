@@ -24,7 +24,8 @@ import math
 import statistics
 from typing import Optional
 
-from backend.services.data_fetcher import DataFetcher
+from backend.services.data_fetcher import TTL_FUNDAMENTALS, DataFetcher
+from backend.services.ttl_cache import async_ttl_cache
 
 
 # ==================================================================
@@ -238,6 +239,10 @@ def compute_technical_indicators(ohlcv_bars: list[dict]) -> dict:
 # Fundamental data — Yahoo quoteSummary
 # ==================================================================
 
+# method=True skips the first positional arg (the DataFetcher instance) so
+# the cache key is the ticker alone — fundamentals are fetcher-independent.
+# cache_if: the function returns {} on upstream failure; don't pin that for 1h.
+@async_ttl_cache(TTL_FUNDAMENTALS, method=True, cache_if=lambda r: bool(r))
 async def fetch_fundamental_metrics(fetcher: DataFetcher, ticker: str) -> dict:
     """
     Fetch fundamental ratios + financial-health metrics from Yahoo.

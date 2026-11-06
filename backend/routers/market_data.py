@@ -980,6 +980,18 @@ async def run_backtest_endpoint(ticker: str, body: dict):
     transaction_cost_pct = float(body.get("transaction_cost_pct", 0.005))
     fixed_commission_per_contract = float(body.get("fixed_commission_per_contract", 1.30))
 
+    # Early-exit rules (optional, % of initial premium). None = hold to end.
+    take_profit_pct = body.get("take_profit_pct")
+    if take_profit_pct is not None:
+        take_profit_pct = float(take_profit_pct)
+    stop_loss_pct = body.get("stop_loss_pct")
+    if stop_loss_pct is not None:
+        stop_loss_pct = float(stop_loss_pct)
+
+    # Real-IV pricing: use locally recorded ATM IV snapshots where available
+    # (HV fallback handled inside the engine). Opt-out via use_real_iv=false.
+    use_real_iv = bool(body.get("use_real_iv", True))
+
     # Parse optional custom legs from a generated strategy. Accepts both
     # uppercase (frontend Strategy schema: "BUY"/"CALL") and lowercase forms.
     custom_legs_raw = body.get("custom_legs")
@@ -1030,6 +1042,15 @@ async def run_backtest_endpoint(ticker: str, body: dict):
         except ValueError:
             pass  # silently fall back to user-supplied dte_days
 
+    # 4) 真实 IV 快照 (本地 SQLite); 失败或为空时引擎自动回退 HV
+    iv_by_date = None
+    if use_real_iv:
+        try:
+            from backend.services.iv_snapshot_store import get_iv_by_date
+            iv_by_date = get_iv_by_date(ticker) or None
+        except Exception:
+            iv_by_date = None  # db unavailable — engine falls back to HV
+
     try:
         result = run_backtest(
             ticker=ticker,
@@ -1042,6 +1063,9 @@ async def run_backtest_endpoint(ticker: str, body: dict):
             transaction_cost_pct=transaction_cost_pct,
             fixed_commission_per_contract=fixed_commission_per_contract,
             custom_legs=custom_legs,
+            iv_by_date=iv_by_date,
+            take_profit_pct=take_profit_pct,
+            stop_loss_pct=stop_loss_pct,
         )
         return asdict(result)
     except ValueError as e:

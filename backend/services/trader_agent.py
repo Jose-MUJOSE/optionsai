@@ -33,7 +33,7 @@ _logger = logging.getLogger(__name__)
 # Version tag — bumped whenever the pipeline contract changes. Printed at
 # startup AND streamed in the first SSE event so the frontend can verify
 # it's talking to a v3.x backend.
-PIPELINE_VERSION = "v3.7-burst3"
+PIPELINE_VERSION = "v3.8-structured"
 
 
 def _safe_log(message: str) -> None:
@@ -53,10 +53,17 @@ def _safe_log(message: str) -> None:
 
 
 # Banner printed once per process import so the user can verify which
-# version is actually loaded after a restart.
+# version is actually loaded after a restart (v3.8: structured JSON parsing).
 print(f"[trader_agent] Loaded pipeline {PIPELINE_VERSION} — burst=3, concurrency=3, retries=3, phase_timeout=240s", flush=True)
 
 from backend.services.data_fetcher import DataFetcher
+from backend.services.llm_schemas import (
+    ManagerOutput,
+    RebuttalOutput,
+    ResearcherOutput,
+    extract_json,
+    parse_validated,
+)
 from backend.services.researcher_context import (
     compute_technical_indicators,
     fetch_fundamental_metrics,
@@ -961,11 +968,16 @@ class TraderAgentPipeline:
         self.client = llm_client
         self.model = model
         self.fetcher = fetcher
+        if getattr(llm_client, "provider", None) == "openai":
+            self.LLM_CALL_TIMEOUT_SECONDS = 180.0
+            self.RESEARCH_PHASE_TIMEOUT_SECONDS = 1200
         # Per-instance semaphore so concurrent runs of the pipeline (one per
         # request) each get their own quota. NOTE: must be created lazily
         # inside an async context — asyncio.Semaphore() at __init__ time can
         # bind to a different loop than the one running the request.
         self._llm_semaphore: Optional[asyncio.Semaphore] = None
+        # None = unknown (try JSON mode), True = confirmed, False = rejected.
+        self._json_mode_supported: Optional[bool] = None
 
     def _get_semaphore(self) -> asyncio.Semaphore:
         if self._llm_semaphore is None:
@@ -1027,6 +1039,109 @@ class TraderAgentPipeline:
         )
         return ""
 
+    async def _llm_json_with_retry(
+        self,
+        *,
+        label: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        model_cls,
+    ) -> Optional[dict]:
+        """Chat completion that must return JSON validating against `model_cls`.
+
+        Unifies transport retries and parse/validation retries in one budget:
+        a syntactically-broken or schema-invalid response counts as a failed
+        attempt and triggers a fresh completion (with a corrective nudge),
+        instead of silently falling back like the old _parse_json path did.
+
+        Also requests native JSON mode (`response_format={"type":"json_object"}`)
+        when the provider supports it; if the provider rejects the parameter,
+        we permanently disable it for this pipeline instance and retry without.
+
+        Returns the validated dict, or None after MAX_RETRIES failures.
+        """
+        import random
+
+        sem = self._get_semaphore()
+        attempt_messages = list(messages)
+        last_error = "unknown"
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            content = ""
+            try:
+                kwargs: dict = {}
+                if self._json_mode_supported is not False:
+                    kwargs["response_format"] = {"type": "json_object"}
+                async with sem:
+                    resp = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=attempt_messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=self.LLM_CALL_TIMEOUT_SECONDS,
+                        **kwargs,
+                    )
+                content = resp.choices[0].message.content or ""
+                if self._json_mode_supported is None:
+                    self._json_mode_supported = True
+            except Exception as e:
+                err_text = f"{type(e).__name__}: {e}"
+                # Provider rejected response_format → disable JSON mode and
+                # retry immediately without consuming extra backoff time.
+                if (
+                    self._json_mode_supported is not False
+                    and ("response_format" in str(e) or "json_object" in str(e))
+                ):
+                    self._json_mode_supported = False
+                    _safe_log(
+                        f"[trader_agent] {label}: provider rejected JSON mode; "
+                        "falling back to plain completions for this run"
+                    )
+                else:
+                    last_error = err_text
+                    _safe_log(
+                        f"[trader_agent] {label}: API attempt {attempt}/{self.MAX_RETRIES} "
+                        f"failed — {err_text}"
+                    )
+
+            if content.strip():
+                validated = parse_validated(content, model_cls)
+                if validated is not None:
+                    return validated
+                last_error = "json_validation_failed"
+                _safe_log(
+                    f"[trader_agent] {label}: attempt {attempt}/{self.MAX_RETRIES} returned "
+                    f"unparsable/invalid JSON. Raw preview: {content[:200]!r}"
+                )
+                # Corrective nudge for the next attempt (added once).
+                if attempt == 1:
+                    attempt_messages = attempt_messages + [
+                        {"role": "assistant", "content": content[:1500]},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous reply was not a valid JSON object matching the "
+                                "required schema. Reply again with ONLY the JSON object — "
+                                "no prose, no markdown fences, all required fields present."
+                            ),
+                        },
+                    ]
+
+            if attempt < self.MAX_RETRIES:
+                backoff = min(
+                    self.MAX_BACKOFF_SECONDS,
+                    self.INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+                )
+                backoff *= 1.0 + (random.random() - 0.5) * 0.4
+                await asyncio.sleep(backoff)
+
+        _safe_log(
+            f"[trader_agent] {label}: gave up after {self.MAX_RETRIES} attempts "
+            f"(last error: {last_error})"
+        )
+        return None
+
     async def _call_researcher(
         self,
         spec_key: str,
@@ -1056,7 +1171,7 @@ class TraderAgentPipeline:
         parsed: dict = {}
         error_label: Optional[str] = None
 
-        content = await self._llm_completion_with_retry(
+        validated = await self._llm_json_with_retry(
             label=spec_key,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -1064,12 +1179,10 @@ class TraderAgentPipeline:
             ],
             temperature=0.4,
             max_tokens=900,
+            model_cls=ResearcherOutput,
         )
-        if content:
-            parsed = self._parse_json(content)
-            if not parsed:
-                error_label = "json_parse_failed"
-                _safe_log(f"[trader_agent] {spec_key}: JSON parse failed. Raw: {content[:300]!r}")
+        if validated is not None:
+            parsed = validated
         else:
             error_label = "all_retries_exhausted"
 
@@ -1217,7 +1330,7 @@ class TraderAgentPipeline:
         )
         system_prompt = f"{lang_directive}\n\n{role_intro}\n\n{instruction}"
 
-        content = await self._llm_completion_with_retry(
+        parsed = await self._llm_json_with_retry(
             label="manager",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -1225,37 +1338,25 @@ class TraderAgentPipeline:
             ],
             temperature=0.3,
             max_tokens=2600,
+            model_cls=ManagerOutput,
         )
-        if not content:
-            return {
-                "decision": "hold",
-                "conviction": 5,
-                "thesis": "Manager analysis unavailable: all retries exhausted",
-                "debate_summary": "Pipeline error",
-                "key_catalysts": [],
-                "main_risks": [],
-                "synthesis": {},
-                "actionable_steps": [],
-                "consensus_score": "",
-            }
 
-        parsed = self._parse_json(content)
-
-        # Defensive fallback: if the model returned content but it couldn't be
-        # parsed as JSON, OR the JSON was valid but missing the two fields the
-        # frontend needs, substitute a safe shape so the UI shows a clear
-        # message instead of the literal string "UNDEFINED".
-        if not parsed or "decision" not in parsed or "conviction" not in parsed:
+        # Defensive fallback: every retry either failed at the transport level,
+        # returned unparsable JSON, or was missing decision/conviction (schema
+        # validation). Substitute a safe shape so the UI shows a clear message
+        # instead of the literal string "UNDEFINED".
+        if parsed is None:
             _safe_log(
-                f"[trader_agent] Manager JSON malformed or missing decision/conviction. "
-                f"Raw preview: {content[:240]!r}"
+                "[trader_agent] Manager response unavailable after retries "
+                "(transport failure or invalid JSON on every attempt)."
             )
             return {
                 "decision": "hold",
                 "conviction": 5,
                 "thesis": (
-                    "The Portfolio Manager response could not be parsed as JSON. "
-                    "Defaulting to HOLD. See backend logs for the raw response."
+                    "The Portfolio Manager response could not be parsed as JSON "
+                    "after multiple retries. Defaulting to HOLD. "
+                    "See backend logs for the raw responses."
                 ),
                 "debate_summary": "",
                 "key_catalysts": [],
@@ -1264,50 +1365,20 @@ class TraderAgentPipeline:
                 "actionable_steps": [],
                 "consensus_score": "",
                 "_parse_error": True,
-                "_raw_preview": content[:500],
             }
 
         return parsed
 
     @staticmethod
     def _parse_json(text: str) -> dict:
-        """Best-effort JSON extraction from a model response.
+        """Best-effort JSON extraction (legacy shim).
 
-        Handles three shapes the LLM may return:
-          1. Bare JSON object              ->  {"...": ...}
-          2. Fenced JSON                   ->  ```json\n{...}\n```
-          3. JSON with preamble / suffix   ->  "Here is my answer: {...} hope this helps"
-        Returns {} only if the result is genuinely unparsable — the caller is
-        then responsible for substituting a safe default so the frontend never
-        receives missing decision/conviction fields.
+        Parsing now lives in backend.services.llm_schemas.extract_json, which
+        is string-aware (won't be fooled by braces inside prose) and tolerates
+        fences, preambles and trailing commas. Kept as a method so any older
+        call sites keep working.
         """
-        if not text:
-            return {}
-        text = text.strip()
-
-        # Strip markdown code fences. The previous implementation used
-        # `text.split("```", 2)[-1]` which returns the trailing empty string
-        # whenever both an opening and closing fence are present — that's how
-        # the frontend ended up rendering "UNDEFINED" for the PM decision.
-        if "```" in text:
-            text = re.sub(r"^```(?:json|JSON)?\s*\n?", "", text)
-            text = re.sub(r"\n?\s*```\s*$", "", text)
-            text = text.strip()
-
-        # Trim any prose around the JSON object by clipping to the outermost braces.
-        if "{" in text and "}" in text:
-            start = text.find("{")
-            end = text.rfind("}")
-            text = text[start : end + 1]
-
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
-            _safe_log(
-                f"[trader_agent] _parse_json failed ({exc.msg} @ pos {exc.pos}) "
-                f"| preview: {text[:160]!r}"
-            )
-            return {}
+        return extract_json(text) or {}
 
     async def _call_debate_rebuttal(
         self,
@@ -1389,7 +1460,7 @@ class TraderAgentPipeline:
         system_prompt = f"{lang}\n\n{role}\n\n{instruction}"
         user_prompt = f"Ticker: {ticker}\n\n{own_summary}{opp_summary}\n\n{lang}"
 
-        content = await self._llm_completion_with_retry(
+        validated = await self._llm_json_with_retry(
             label=f"debate_{own_id}",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -1397,10 +1468,9 @@ class TraderAgentPipeline:
             ],
             temperature=0.5,
             max_tokens=400,
+            model_cls=RebuttalOutput,
         )
-        if not content:
-            return {}
-        return self._parse_json(content) or {}
+        return validated or {}
 
     async def run(
         self,
@@ -1502,7 +1572,9 @@ class TraderAgentPipeline:
                 try:
                     block = format_researcher_specific_context(ctx, key, mode, locale)
                     return await self._call_researcher(key, spec, block, locale)
-                except BaseException as e:
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
                     # Catch ALL exceptions including asyncio.CancelledError
                     # (BaseException subclass, NOT caught by `except Exception`).
                     _safe_log(f"[trader_agent] {key} pipeline error: {type(e).__name__}: {e}")
@@ -1556,7 +1628,9 @@ class TraderAgentPipeline:
                     key = task_map[future]
                     try:
                         result = future.result()
-                    except BaseException as e:
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
                         # An exception escaped safe_call — emit fallback immediately
                         # so this analyst is never silently dropped.
                         _safe_log(
@@ -1684,12 +1758,17 @@ class TraderAgentPipeline:
             # CancelledError) doesn't lose the researcher results we already have.
             yield self._sse({"type": "phase", "phase": "manager_start"})
             base_block = format_context_for_researcher(ctx, mode, locale)
+            yield self._sse({"type": "manager_context", "context": base_block})
+            _safe_log("[trader_agent] manager started")
             try:
                 decision = await self._call_manager(researcher_results, base_block, mode, locale)
-            except BaseException as e:
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
                 _safe_log(f"[trader_agent] manager pipeline error: {type(e).__name__}: {e}")
                 decision = {
-                    "decision": "hold",
+                    "_parse_error": True,
+                    "decision": "unavailable",
                     "conviction": 5,
                     "thesis": (
                         f"Manager analysis failed: {type(e).__name__}. "
@@ -1704,6 +1783,7 @@ class TraderAgentPipeline:
                     "actionable_steps": [],
                     "consensus_score": "",
                 }
+            _safe_log("[trader_agent] manager finished; valid=" + str(not decision.get("_parse_error", False)))
             yield self._sse({
                 "type": "manager",
                 "result": {"mode": mode, "ticker": ticker, **decision},
@@ -1716,10 +1796,19 @@ class TraderAgentPipeline:
                 "manager": decision,
             })
 
-        except BaseException as e:
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
             # Catch BaseException (incl. CancelledError) so the user sees an
             # explicit error event rather than a silent SSE stream drop.
             yield self._sse({"type": "error", "message": f"{type(e).__name__}: {str(e)}"})
+
+        finally:
+            for task in locals().get("task_map", {}):
+                if not task.done():
+                    task.cancel()
+            if locals().get("task_map"):
+                await asyncio.gather(*task_map, return_exceptions=True)
 
     @staticmethod
     def _sse(payload: dict) -> str:

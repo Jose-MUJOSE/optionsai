@@ -28,7 +28,7 @@ from typing import Literal
 Market = Literal["us", "cn_a", "hk"]
 
 
-_US_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9]{0,4}(\.[AB])?$")
+_US_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9]{0,4}([.-][AB])?$")
 _CN_SS_RE = re.compile(r"^\d{6}\.SS$")  # Shanghai A-shares
 _CN_SZ_RE = re.compile(r"^\d{6}\.SZ$")  # Shenzhen A-shares
 _HK_RE = re.compile(r"^\d{4,5}\.HK$")    # Hong Kong stocks
@@ -107,7 +107,7 @@ def validate_us_ticker(ticker: str) -> ValidationResult:
         )
 
     # Reject crypto pairs (BTC-USD)
-    if "-" in t:
+    if "-" in t and not _US_TICKER_RE.fullmatch(t):
         return ValidationResult(
             valid=False,
             reason_en="Crypto pairs are not supported (no options market).",

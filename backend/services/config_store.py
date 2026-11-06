@@ -4,20 +4,26 @@ OptionsAI - 运行时配置管理
 """
 import json
 import os
+import tempfile
+from threading import RLock
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+load_dotenv(_CONFIG_PATH.parent / ".env")
+_LOCK = RLock()
 
 _DEFAULT_CONFIG = {
     "data_provider": "yahoo",  # yahoo / polygon
     "polygon_api_key": "",
     "tradier_api_key": "",
     # Any of the keys in LLM_PRESETS, or "custom".
-    "llm_provider": "deepseek",
+    "llm_provider": "openai",
     "llm_api_key": "",
     "llm_base_url": "",
     "llm_model": "",
+    "llm_reasoning_effort": "high",
 }
 
 # Provider presets — every entry exposes an OpenAI-compatible /chat/completions
@@ -33,7 +39,7 @@ LLM_PRESETS: dict[str, dict[str, str]] = {
     },
     "openai": {
         "base_url": "https://api.openai.com/v1",
-        "model": "gpt-4o",
+        "model": "gpt-6.1-terra",
         "label": "OpenAI",
         "signup_url": "https://platform.openai.com/api-keys",
     },
@@ -107,22 +113,31 @@ def _load_config() -> dict:
     # Also check env vars as fallback
     if not config["polygon_api_key"]:
         config["polygon_api_key"] = os.getenv("POLYGON_API_KEY", "")
+    provider = config["llm_provider"]
     if not config["llm_api_key"]:
-        config["llm_api_key"] = os.getenv("DEEPSEEK_API_KEY", "")
+        config["llm_api_key"] = os.getenv(f"{provider.upper()}_API_KEY", "")
     if not config["llm_base_url"]:
         preset = LLM_PRESETS.get(config["llm_provider"], {})
-        config["llm_base_url"] = os.getenv("DEEPSEEK_BASE_URL", preset.get("base_url", ""))
+        config["llm_base_url"] = os.getenv(f"{provider.upper()}_BASE_URL", preset.get("base_url", ""))
     if not config["llm_model"]:
         preset = LLM_PRESETS.get(config["llm_provider"], {})
-        config["llm_model"] = preset.get("model", "deepseek-chat")
+        config["llm_model"] = os.getenv(f"{provider.upper()}_MODEL", preset.get("model", ""))
 
     return config
 
 
 def _save_config(config: dict):
     """Save config to JSON file"""
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    fd, temp = tempfile.mkstemp(dir=_CONFIG_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp, _CONFIG_PATH)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
 
 
 # Singleton config
@@ -138,21 +153,30 @@ def get_config() -> dict:
 
 def update_config(updates: dict) -> dict:
     global _config
-    config = get_config()
-    config.update(updates)
-
-    # Apply provider preset if provider changed
-    provider = config.get("llm_provider", "")
-    if provider in LLM_PRESETS:
+    with _LOCK:
+        previous = get_config()
+        config = dict(previous)
+        provider = updates.get("llm_provider", config["llm_provider"])
+        if provider not in LLM_PRESETS:
+            raise ValueError("Unknown LLM provider")
+        if provider != previous["llm_provider"]:
+            # Never send one provider's saved credential to another provider.
+            config.update(llm_api_key=os.getenv(f"{provider.upper()}_API_KEY", ""),
+                          llm_base_url="", llm_model="")
+        config.update(updates)
         preset = LLM_PRESETS[provider]
-        if not config.get("llm_base_url"):
-            config["llm_base_url"] = preset["base_url"]
-        if not config.get("llm_model"):
-            config["llm_model"] = preset["model"]
-
-    _save_config(config)
-    _config = config
-    return config
+        config["llm_base_url"] = config["llm_base_url"].strip() or preset["base_url"]
+        config["llm_model"] = config["llm_model"].strip() or preset["model"]
+        config["llm_api_key"] = config["llm_api_key"].strip()
+        if config["llm_reasoning_effort"] not in {"none", "low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("Unsupported reasoning effort")
+        if provider == "openai" and config["llm_base_url"].rstrip("/") != "https://api.openai.com/v1":
+            raise ValueError("OpenAI provider requires https://api.openai.com/v1")
+        if not config["llm_base_url"].startswith(("https://", "http://localhost", "http://127.0.0.1")):
+            raise ValueError("A valid HTTPS API URL is required")
+        _save_config(config)
+        _config = config
+        return dict(config)
 
 
 def get_masked_config() -> dict:
@@ -161,8 +185,6 @@ def get_masked_config() -> dict:
     masked = dict(config)
     for key in ["polygon_api_key", "llm_api_key", "tradier_api_key"]:
         val = masked.get(key, "")
-        if val and len(val) > 8:
-            masked[key] = val[:4] + "****" + val[-4:]
-        elif val:
+        if val:
             masked[key] = "****"
     return masked

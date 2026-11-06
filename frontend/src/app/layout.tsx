@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OptionsAI — Smart Options Strategy Platform",
-  description: "AI-powered, real-time multi-asset options strategy terminal",
+  title: "OptionsAI — 股票与期权研究工作台",
+  description: "Stock and options research, saved reports, comparisons and report Q&A",
 };
 
 export default function RootLayout({
@@ -24,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-screen bg-[var(--bg-1)] text-[var(--text-0)] selection:bg-[var(--accent-soft)] selection:text-[var(--accent-hot)]">

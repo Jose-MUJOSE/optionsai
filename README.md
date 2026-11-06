@@ -17,7 +17,7 @@
 
 <br/>
 
-**A multi-agent AI options strategy platform for retail investors.**  
+**A stock-first research workspace with multi-agent analysis and options tools.**
 10 specialist analysts · Full-team cross-examination debate · 10 LLM providers · Portfolio Greeks · Scientific backtesting · Real US-market data · Bilingual UI
 
 <br/>
@@ -29,6 +29,18 @@
 ---
 
 ## 📌 What is OptionsAI?
+
+### Stock research workspace update
+
+The daily workflow is now **Research desk → New research → Task center → Reports & comparison → Report details & Q&A**. Options research, strategies, scanners and paper positions remain available in the options toolkit.
+
+- Select and combine sector/concept stock pools, deduplicate tickers, and remove individual stocks before submission.
+- Run persistent background batches with 1–3 concurrent stocks. Completed reports and partial briefings survive browser closure; interrupted tasks require manual retry.
+- Filter and sort saved reports, compare 2–4 side by side, and export CSV, Word, JSON or ZIP.
+- Open complete manager and analyst reports, inspect saved source context, and ask follow-up questions bound to that report. Conversations are saved separately from original reports.
+- Configure OpenAI in Settings; the default model is `gpt-6.1-terra` with `high` reasoning. Actual availability depends on the API account. Viewing reports does not regenerate them; submitting analysis or questions incurs API usage.
+
+For Windows one-click setup, configuration, data backup and verification, see [Local setup and usage](docs/LOCAL_SETUP.md). The repository contains code and sample configuration; private keys, reports, conversations and local acceptance screenshots are excluded.
 
 OptionsAI is a full-stack web platform that bridges the gap between raw options data and actionable decisions for **beginner retail investors** in the **US market**. Instead of staring at a wall of Greeks and IV numbers, users get:
 

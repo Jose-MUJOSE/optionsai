@@ -15,8 +15,24 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+from backend.services.ttl_cache import async_ttl_cache
+
 _env_path = Path(__file__).resolve().parent.parent / ".env"  # backend/.env
 load_dotenv(_env_path, override=True)
+
+# ----------------------------------------------------------------------
+# Tiered cache TTLs (seconds). Each data type has its own staleness
+# budget; all DataFetcher instances share one process-wide cache, and
+# concurrent identical requests are coalesced into a single upstream call
+# (see backend/services/ttl_cache.py).
+# ----------------------------------------------------------------------
+TTL_SPOT = 30            # live quote — short
+TTL_CHAIN = 60           # options chain / snapshot
+TTL_OHLCV = 300          # daily bars (intraday tail moves slowly)
+TTL_IV = 300             # ATM IV metrics (derived from chain + history)
+TTL_NEWS = 600           # headlines
+TTL_FUNDAMENTALS = 3600  # earnings dates, analyst data, short interest, 13F
+TTL_EXPIRATIONS = 3600   # expiration list changes ~weekly
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
 POLYGON_BASE_URL = "https://api.polygon.io"
@@ -38,6 +54,15 @@ class DataFetcher:
         self._yahoo_cookies: Optional[httpx.Cookies] = None
         # Cache Yahoo expiration timestamps: {ticker: {date_str: unix_ts}}
         self._exp_ts_cache: dict[str, dict[str, int]] = {}
+
+    @property
+    def _polygon_api_key(self) -> str:
+        from backend.services.config_store import get_config
+        config = get_config()
+        key = config.get("polygon_api_key", "")
+        if config.get("data_provider") != "polygon" or key.startswith("your_"):
+            return ""
+        return key
 
     @property
     def _tradier_api_key(self) -> str:
@@ -113,13 +138,14 @@ class DataFetcher:
     # 1. 股价 + 基础行情
     # ================================================================
 
+    @async_ttl_cache(TTL_SPOT)
     async def get_spot_price(self, ticker: str) -> dict:
         """
         获取最新股价和涨跌幅
         返回: {"spot_price": float, "change_pct": float, "prev_close": float}
         """
         # 尝试 Polygon.io
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_spot_price(ticker)
             except Exception:
@@ -129,19 +155,25 @@ class DataFetcher:
 
     async def _polygon_spot_price(self, ticker: str) -> dict:
         client = await self._get_client()
-        # Previous day's agg for price data
-        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/prev"
-        resp = await client.get(url, params={"apiKey": POLYGON_API_KEY})
+        # Two daily closes are required for close-to-close change. The /prev
+        # endpoint returns one OHLC bar; its open is not the previous close.
+        end = datetime.now(timezone.utc).date()
+        start = end - timedelta(days=14)
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+        resp = await client.get(url, params={"apiKey": self._polygon_api_key, "sort": "desc", "limit": 2, "adjusted": "true"})
         resp.raise_for_status()
         data = resp.json()
-        result = data["results"][0]
-        close = result["c"]
-        prev_open = result["o"]
-        change_pct = ((close - prev_open) / prev_open) * 100
+        results = data.get("results", [])
+        if len(results) < 2:
+            raise ValueError("Previous daily close unavailable")
+        close, prev_close = float(results[0]["c"]), float(results[1]["c"])
+        if close <= 0 or prev_close <= 0:
+            raise ValueError("Invalid daily quote")
+        change_pct = ((close - prev_close) / prev_close) * 100
         return {
             "spot_price": close,
             "change_pct": round(change_pct, 2),
-            "prev_close": result.get("c", close),
+            "prev_close": prev_close,
         }
 
     async def _yahoo_spot_price(self, ticker: str) -> dict:
@@ -159,19 +191,22 @@ class DataFetcher:
             meta = result["meta"]
 
             price = float(meta.get("regularMarketPrice", 0))
-            prev = float(meta.get("previousClose", 0) or meta.get("chartPreviousClose", 0))
+            # chartPreviousClose is the close BEFORE the entire requested range,
+            # not yesterday's close. Using it with range=5d reports a weekly move.
+            closes = result["indicators"]["quote"][0].get("close", [])
+            valid_closes = [float(v) for v in closes if v is not None and math.isfinite(float(v))]
+            prev = float(meta.get("previousClose", 0) or meta.get("regularMarketPreviousClose", 0))
+            if prev <= 0 and len(valid_closes) >= 2:
+                prev = valid_closes[-2]
 
             if price <= 0:
                 # Fallback: use last close from the timeseries
-                closes = result["indicators"]["quote"][0].get("close", [])
-                # Filter out None values
-                valid_closes = [c for c in closes if c is not None]
                 if valid_closes:
                     price = float(valid_closes[-1])
                     if len(valid_closes) >= 2:
                         prev = float(valid_closes[-2])
-                    else:
-                        prev = price
+            if price <= 0 or prev <= 0 or not math.isfinite(price) or not math.isfinite(prev):
+                raise ValueError("Quote or previous close unavailable")
 
             change_pct = ((price - prev) / prev * 100) if prev else 0
             return {
@@ -180,19 +215,20 @@ class DataFetcher:
                 "prev_close": round(prev, 2),
             }
         except Exception:
-            return {"spot_price": 0.0, "change_pct": 0.0, "prev_close": 0.0}
+            raise ValueError(f"行情暂不可用 / Quote unavailable for {ticker}; please retry.") from None
 
     # ================================================================
     # 2. 历史价格 + 波动率计算
     # ================================================================
 
+    @async_ttl_cache(TTL_OHLCV)
     async def get_historical_volatility(self, ticker: str, days: int = 252) -> dict:
         """
         获取历史波动率 (HV) - 基于过去 N 个交易日的收盘价
         返回: {"hv_30": float, "hv_60": float, "daily_returns": pd.Series}
         """
         # 尝试 Polygon.io
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_hv(ticker, days)
             except Exception:
@@ -204,7 +240,7 @@ class DataFetcher:
         end = datetime.now()
         start = end - timedelta(days=int(days * 1.5))  # 多取一些天数确保交易日够
         url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/range/1/day/{start.strftime('%Y-%m-%d')}/{end.strftime('%Y-%m-%d')}"
-        resp = await client.get(url, params={"apiKey": POLYGON_API_KEY, "limit": 500, "sort": "asc"})
+        resp = await client.get(url, params={"apiKey": self._polygon_api_key, "limit": 500, "sort": "asc"})
         resp.raise_for_status()
         results = resp.json().get("results", [])
         if len(results) < 30:
@@ -245,13 +281,14 @@ class DataFetcher:
         except Exception:
             return None
 
+    @async_ttl_cache(TTL_OHLCV)
     async def get_ohlcv(self, ticker: str, range: str = "1y", interval: str = "1d") -> dict:
         """
         获取 OHLCV K线数据
         返回: {"ticker": str, "interval": str, "bars": [{"time": int, "open": float, "high": float, "low": float, "close": float, "volume": int}]}
         """
         # 尝试 Polygon.io
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_ohlcv(ticker, range, interval)
             except Exception:
@@ -269,7 +306,7 @@ class DataFetcher:
         # Map interval
         multiplier, timespan = {"1d": (1, "day"), "1wk": (1, "week"), "1mo": (1, "month")}.get(interval, (1, "day"))
         url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{start.strftime('%Y-%m-%d')}/{end.strftime('%Y-%m-%d')}"
-        resp = await client.get(url, params={"apiKey": POLYGON_API_KEY, "limit": 1000, "sort": "asc"})
+        resp = await client.get(url, params={"apiKey": self._polygon_api_key, "limit": 1000, "sort": "asc"})
         resp.raise_for_status()
         results = resp.json().get("results", [])
         bars = []
@@ -348,6 +385,7 @@ class DataFetcher:
     # 3. 隐含波动率 IV + IV Rank / IV Percentile
     # ================================================================
 
+    @async_ttl_cache(TTL_IV)
     async def get_iv_metrics(self, ticker: str) -> dict:
         """
         Real-data volatility metrics. No synthetic ranges.
@@ -631,6 +669,7 @@ class DataFetcher:
     # 4. 财报日期
     # ================================================================
 
+    @async_ttl_cache(TTL_FUNDAMENTALS, cache_none=True)
     async def get_earnings_date(self, ticker: str) -> Optional[str]:
         """获取下一次财报日期"""
         # 尝试 Yahoo Finance calendarEvents (需要 crumb 认证)
@@ -662,7 +701,7 @@ class DataFetcher:
             pass
 
         # Polygon.io 备用
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_earnings_date(ticker)
             except Exception:
@@ -678,7 +717,7 @@ class DataFetcher:
             "ticker": ticker,
             "filing_date.gte": today,
             "limit": 1,
-            "apiKey": POLYGON_API_KEY,
+            "apiKey": self._polygon_api_key,
         })
         data = resp.json()
         results = data.get("results", [])
@@ -690,10 +729,11 @@ class DataFetcher:
     # 5. 期权到期日列表
     # ================================================================
 
+    @async_ttl_cache(TTL_EXPIRATIONS)
     async def get_expirations(self, ticker: str) -> list[str]:
         """获取所有可用到期日"""
         # Polygon.io
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_expirations(ticker)
             except Exception:
@@ -708,7 +748,7 @@ class DataFetcher:
             "underlying_ticker": ticker,
             "expired": "false",
             "limit": 1000,
-            "apiKey": POLYGON_API_KEY,
+            "apiKey": self._polygon_api_key,
         })
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -736,6 +776,7 @@ class DataFetcher:
     # 6. 完整期权链
     # ================================================================
 
+    @async_ttl_cache(TTL_CHAIN)
     async def get_options_chain(self, ticker: str, expiration: str) -> dict:
         """
         获取指定到期日的完整期权链
@@ -753,7 +794,7 @@ class DataFetcher:
                 pass
 
         # 尝试 Polygon.io
-        if POLYGON_API_KEY:
+        if self._polygon_api_key:
             try:
                 return await self._polygon_options_chain(ticker, expiration, dte)
             except Exception:
@@ -768,7 +809,7 @@ class DataFetcher:
         resp = await client.get(url, params={
             "expiration_date": expiration,
             "limit": 250,
-            "apiKey": POLYGON_API_KEY,
+            "apiKey": self._polygon_api_key,
         })
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -982,13 +1023,14 @@ class DataFetcher:
     # 8. 新闻资讯 (Polygon.io)
     # ================================================================
 
+    @async_ttl_cache(TTL_NEWS)
     async def get_news(self, ticker: str, limit: int = 5) -> list[dict]:
         """
         获取标的最新新闻
         优先 Polygon.io, 回退 Yahoo Finance
         """
         # 1. 尝试 Polygon.io
-        if POLYGON_API_KEY and POLYGON_API_KEY != "your_polygon_api_key_here":
+        if self._polygon_api_key and self._polygon_api_key != "your_polygon_api_key_here":
             try:
                 client = await self._get_client()
                 url = f"{POLYGON_BASE_URL}/v2/reference/news"
@@ -997,7 +1039,7 @@ class DataFetcher:
                     "limit": limit,
                     "order": "desc",
                     "sort": "published_utc",
-                    "apiKey": POLYGON_API_KEY,
+                    "apiKey": self._polygon_api_key,
                 })
                 resp.raise_for_status()
                 results = resp.json().get("results", [])
@@ -1051,6 +1093,7 @@ class DataFetcher:
     # 9. 分析师目标价 (Yahoo Finance)
     # ================================================================
 
+    @async_ttl_cache(TTL_FUNDAMENTALS)
     async def get_analyst_data(self, ticker: str) -> dict:
         """
         获取分析师共识数据：目标价、评级
@@ -1175,6 +1218,7 @@ class DataFetcher:
     # 7a. 期权快照 (指定到期日的 ATM IV + Greeks)
     # ================================================================
 
+    @async_ttl_cache(TTL_CHAIN)
     async def get_options_snapshot(self, ticker: str, expiration: str) -> dict:
         """
         获取指定到期日的 ATM IV 和 Greeks
@@ -1352,6 +1396,7 @@ class DataFetcher:
     # 10. 空头持仓 + 筹码分布 + 机构持仓数据
     # ================================================================
 
+    @async_ttl_cache(TTL_FUNDAMENTALS)
     async def get_short_interest(self, ticker: str) -> dict:
         """
         获取空头持仓数据 (来自 Yahoo Finance quoteSummary)
@@ -1393,6 +1438,7 @@ class DataFetcher:
                 "source": "Yahoo Finance (FINRA biweekly)",
             }
 
+    @async_ttl_cache(TTL_FUNDAMENTALS)
     async def get_finra_short_volume(self, ticker: str, days: int = 20) -> list:
         """
         从 FINRA RegSHO 获取每日卖空量数据 (真实日线数据)
@@ -1451,6 +1497,7 @@ class DataFetcher:
         results.reverse()
         return results
 
+    @async_ttl_cache(TTL_OHLCV)
     async def get_chip_distribution(self, ticker: str) -> dict:
         """
         基于 OHLCV 数据的 VWAP 加权价格分布估算
@@ -1504,6 +1551,7 @@ class DataFetcher:
         except Exception:
             return {"buckets": [], "data_label": "vwap_approximation", "current_price": 0}
 
+    @async_ttl_cache(TTL_FUNDAMENTALS)
     async def get_smart_money(self, ticker: str) -> dict:
         """
         获取机构持仓、内部人交易、P/C 比数据
@@ -1565,6 +1613,7 @@ class DataFetcher:
     # 6B. 财报实际 vs 隐含涨跌幅
     # ================================================================
 
+    @async_ttl_cache(TTL_FUNDAMENTALS)
     async def get_earnings_moves(
         self, ticker: str, lookback_quarters: int = 8
     ) -> dict:
@@ -1872,6 +1921,7 @@ class DataFetcher:
     # 6C. 经销商 Gamma Exposure (GEX) by strike
     # ================================================================
 
+    @async_ttl_cache(TTL_CHAIN)
     async def get_gamma_exposure(
         self, ticker: str, expiration: str
     ) -> dict:

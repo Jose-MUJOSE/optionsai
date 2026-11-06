@@ -101,6 +101,26 @@ def get_iv_series(ticker: str, days: int = 252) -> list[float]:
     return [r[0] for r in reversed(rows)]
 
 
+def get_iv_by_date(ticker: str, days: int = 730) -> dict[str, float]:
+    """
+    Return {ISO date: ATM IV percent} for up to `days` most recent snapshots.
+    Used by the backtest engine to price with REAL recorded IV where we have
+    it (and fall back to 30D HV elsewhere). Empty dict if nothing recorded.
+    """
+    ticker = ticker.upper().strip()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT snap_date, iv_atm FROM iv_snapshots
+            WHERE ticker = ?
+            ORDER BY snap_date DESC
+            LIMIT ?
+            """,
+            (ticker, int(days)),
+        ).fetchall()
+    return {r[0]: float(r[1]) for r in rows}
+
+
 def count_snapshots(ticker: str) -> int:
     ticker = ticker.upper().strip()
     with _connect() as conn:
